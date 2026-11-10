@@ -64,12 +64,21 @@ export class WardrobeStore {
     return path.join(this.imagesDir(), String(name));
   }
 
-  /** 分页查：page 从 1 开始，每页 10 件，只回 id + title。筛选在内存里做（衣柜不会大到需要索引）。 */
-  page({ page = 1, type = '', body = '' } = {}) {
-    const wantedType = String(type ?? '').trim().toLowerCase();
+  /**
+   * 分页查：page 从 1 开始，每页 10 件，只回 id + title。
+   * query 是模糊搜索——种类、颜色、款式词都行，匹配标题 + 种类字段；
+   * 多个词用空格隔开表示「都要命中」（"冰蓝 针织"）。
+   */
+  page({ page = 1, query = '', body = '' } = {}) {
+    const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
     const wantedBody = bodyTokens(body);
     let rows = this.list();
-    if (wantedType) rows = rows.filter((r) => r.type.toLowerCase().includes(wantedType));
+    if (words.length) {
+      rows = rows.filter((r) => {
+        const haystack = `${r.title} ${r.type}`.toLowerCase();
+        return words.every((w) => haystack.includes(w));
+      });
+    }
     if (wantedBody.length) rows = rows.filter((r) => { const have = bodyTokens(r.body); return wantedBody.some((t) => have.includes(t)); });
     const total = rows.length;
     const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));

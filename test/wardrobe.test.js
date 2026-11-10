@@ -176,8 +176,8 @@ test('按种类和部位筛；一件标多个部位时命中任意一个都列�
     store.create({ title: '麻花裙', type: '针织连衣裙', body: '颈,腰,腿' });
     store.create({ title: '风衣', type: '外套', body: '肩' });
     store.create({ title: '长靴', type: '鞋', body: '腿,脚' });
-    assert.equal(store.page({ type: '连衣裙' }).total, 1);
-    assert.equal(store.page({ type: '外套' }).items[0].title, '风衣');
+    assert.equal(store.page({ query: '连衣裙' }).total, 1);
+    assert.equal(store.page({ query: '外套' }).items[0].title, '风衣');
     assert.equal(store.page({ body: '腿' }).total, 2);
     assert.equal(store.page({ body: '脚' }).items[0].title, '长靴');
     assert.equal(store.page({ body: '腰' }).total, 1);
@@ -213,9 +213,9 @@ test('她用的四个工具：列表只给 id+标题，细节走 get_cloth', asy
     assert.ok(all.text.includes(item.id), '列表必须带 id，不然她拿不到细节');
     assert.ok(!all.text.includes('清冷柔和'), '列表不该把描述塞进来');
 
-    const byType = await specs.wardrobe_list_type.execute({ type: '连衣裙' });
+    const byType = await specs.wardrobe_list_type.execute({ query: '连衣裙' });
     assert.match(byType.text, /冰蓝麻花裙/);
-    await assert.rejects(() => specs.wardrobe_list_type.execute({ type: '  ' }), /type_required/);
+    await assert.rejects(() => specs.wardrobe_list_type.execute({ query: '  ' }), /type_required/);
 
     const byBody = await specs.wardrobe_list_body.execute({ body: '腿' });
     assert.match(byBody.text, /冰蓝麻花裙/);
@@ -250,5 +250,24 @@ test('接口：穿上/脱下走同一个端点，GET 带 wornId', async () => {
     const off = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'unwear' } });
     assert.equal(off.json.worn, null);
     assert.equal((await call('/dsh-wardrobe/api')).json.wornId, '');
+  } finally { store.close(); }
+});
+
+
+test('种类改成模糊搜索：针织、连衣裙、颜色冰蓝都能搜到，多个词要同时命中', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    store.create({ title: '冰蓝色高领麻花针织毛衣裙', type: '针织连衣裙', body: '颈、腰、腿' });
+    store.create({ title: '米白针织开衫', type: '针织上衣', body: '肩' });
+    store.create({ title: '卡其风衣', type: '外套', body: '肩' });
+
+    const titles = (q) => store.page({ query: q }).items.map((i) => i.title);
+    assert.equal(store.page({ query: '针织' }).total, 2, '针织要能搜出两件');
+    assert.deepEqual(titles('连衣裙'), ['冰蓝色高领麻花针织毛衣裙'], '连衣裙只在种类里，也要搜到');
+    assert.deepEqual(titles('冰蓝'), ['冰蓝色高领麻花针织毛衣裙'], '颜色在标题里，也要搜到');
+    assert.deepEqual(titles('冰蓝 针织'), ['冰蓝色高领麻花针织毛衣裙'], '两个词都命中才算');
+    assert.equal(store.page({ query: '冰蓝 风衣' }).total, 0, '两个词分属不同衣服时不能串');
+    assert.equal(store.page({ query: '牛仔' }).total, 0);
+    assert.equal(store.page({ query: '   ' }).total, 3, '空查询就是全部');
   } finally { store.close(); }
 });

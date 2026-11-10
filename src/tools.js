@@ -16,8 +16,8 @@ const OUTPUT = {
 
 const pageParam = { type: 'number', description: '页码，从 1 开始，每页 10 件；不传就是第 1 页' };
 
-function renderPage(result, label) {
-  if (!result.total) return { text: `衣柜里没有${label}的衣服。`, meta: result };
+function renderPage(result, label, emptyText) {
+  if (!result.total) return { text: emptyText ?? `没有${label}的衣服。`, meta: result };
   const lines = result.items.map((item, index) => `${(result.page - 1) * result.pageSize + index + 1}. ${item.title}（id: ${item.id}）`);
   const more = result.page < result.pages ? `\n还有 ${result.pages - result.page} 页，要看得传 page=${result.page + 1}。` : '';
   return {
@@ -33,19 +33,19 @@ export function toolSpecs(store) {
       description: '看衣柜里所有衣服的标题（分页，每页 10 件）。想知道自己都有什么衣服时用。只返回 id 和标题，具体描述用 wardrobe_get_cloth。',
       parameters: { page: pageParam },
       output: OUTPUT,
-      execute: async ({ page }) => renderPage(store.page({ page }), ''),
+      execute: async ({ page }) => renderPage(store.page({ page }), '', '衣柜还是空的，一件衣服都没有。'),
     },
     {
       name: 'wardrobe_list_type',
-      description: '按种类看衣服的标题（分页，每页 10 件）。种类是她自己衣服上标的那个词，比如连衣裙、外套、上衣、鞋、配饰；不确定有哪些种类就先 wardrobe_list_all 看标题。只返回 id 和标题。',
+      description: '按关键词搜衣服的标题（分页，每页 10 件）。模糊匹配标题和种类字段，所以种类词、颜色词、款式词都能搜：「针织」「连衣裙」「冰蓝」「毛衣」都行。多个词用空格隔开表示都要命中，比如「冰蓝 针织」。只返回 id 和标题，细节用 wardrobe_get_cloth。',
       parameters: {
-        type: { type: 'string', description: '种类关键词，比如「连衣裙」「外套」' },
+        query: { type: 'string', description: '搜索词，比如「针织」「连衣裙」「冰蓝」；多个词用空格分隔表示同时满足' },
         page: pageParam,
       },
       output: OUTPUT,
-      execute: async ({ type, page }) => {
-        requireValue(String(type ?? '').trim(), 'type_required');
-        return renderPage(store.page({ type, page }), `种类「${String(type).trim()}」`);
+      execute: async ({ query, page }) => {
+        requireValue(String(query ?? '').trim(), 'type_required');
+        return renderPage(store.page({ query, page }), `搜「${String(query).trim()}」`, `没搜到含「${String(query).trim()}」的衣服。换个词试试，或者用 wardrobe_list_all 看全部。`);
       },
     },
     {
@@ -58,7 +58,7 @@ export function toolSpecs(store) {
       output: OUTPUT,
       execute: async ({ body, page }) => {
         requireValue(String(body ?? '').trim(), 'body_required');
-        return renderPage(store.page({ body, page }), `部位「${String(body).trim()}」`);
+        return renderPage(store.page({ body, page }), `部位「${String(body).trim()}」`, `没有标在「${String(body).trim()}」这个部位上的衣服。`);
       },
     },
     {

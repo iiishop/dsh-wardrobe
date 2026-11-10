@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
           h('input', { value: draft.title, maxLength: 120, disabled: busy, placeholder: '比如：米白色针织开衫',
             onChange: (e) => onChange({ ...draft, title: e.target.value }) })),
         h('div', { className: 'dw-grid2' },
-          h(Field, { label: '种类', hint: '连衣裙 / 外套 / 上衣 / 鞋 …' },
+          h(Field, { label: '种类', hint: '连衣裙 / 外套 / 上衣；她能按这里的词模糊搜' },
             h('input', { value: draft.type, maxLength: 60, disabled: busy, placeholder: '针织连衣裙',
               onChange: (e) => onChange({ ...draft, type: e.target.value }) })),
           h(Field, { label: '部位', hint: '多个用逗号分隔' },
