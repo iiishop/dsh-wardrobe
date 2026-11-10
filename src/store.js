@@ -79,6 +79,7 @@ export class WardrobeStore {
     for (const [name, ddl] of [['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"], ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"], ['tags', "ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''"]]) {
       if (!columns.has(name)) this.db.exec(ddl);
     }
+    this.wornListeners = new Set();
     this.migrateWorn();
     this.normalizeBodies();
   }
@@ -189,6 +190,18 @@ export class WardrobeStore {
     return name;
   }
 
+  /** 穿着变化时的回调（index.js 用它把状态同步到 ComfyUI）。返回取消函数。 */
+  onWornChange(listener) {
+    this.wornListeners.add(listener);
+    return () => this.wornListeners.delete(listener);
+  }
+
+  notifyWorn() {
+    for (const listener of this.wornListeners) {
+      try { listener(this.worn()); } catch (error) { /* 同步失败不能连累穿衣本身 */ }
+    }
+  }
+
   /** 正在穿的 id 列表（保持穿上顺序）。 */
   wornIds() {
     const row = this.db.prepare("SELECT value FROM meta WHERE key='worn'").get();
@@ -198,8 +211,9 @@ export class WardrobeStore {
 
   saveWorn(ids) {
     const clean = [...new Set(ids.filter((id) => id && this.get(id)))];
-    if (!clean.length) { this.db.prepare("DELETE FROM meta WHERE key='worn'").run(); return; }
+    if (!clean.length) { this.db.prepare("DELETE FROM meta WHERE key='worn'").run(); this.notifyWorn(); return; }
     this.db.prepare("INSERT OR REPLACE INTO meta VALUES('worn',?)").run(JSON.stringify(clean));
+    this.notifyWorn();
   }
 
   /** 当前穿着：每件 + 它覆盖的部位（部位由这件自己的 body 决定）。 */

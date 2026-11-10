@@ -4,6 +4,7 @@ import path from 'node:path';
 import { WardrobeStore } from './store.js';
 import { installApi } from './api.js';
 import { toolSpecs, loadDefineTool } from './tools.js';
+import { syncGarment } from './garment-sync.js';
 
 export const name = 'dsh-wardrobe';
 // webServer = 设置页与图片；tools = 她查衣柜的四个只读工具。
@@ -47,6 +48,13 @@ export const apply = async (ctx, config = {}) => {
   const issues = [];
   const onIssue = (issue) => { issues.push({ at: new Date().toISOString(), ...issue }); if (issues.length > 20) issues.shift(); };
 
+  // 穿着一变就同步到 ComfyUI 的输入槽（替代 her-garment.timer 的日期轮换）。
+  const comfyInput = config.comfyInput || path.join(os.homedir(), 'Projects', 'ComfyUI', 'input');
+  const sync = (worn) => syncGarment(store, { comfyInput, log: (line) => console.log(`[dsh-wardrobe] ${line}`) });
+  const unsubscribe = store.onWornChange(sync);
+  // 启动时先对齐一次，避免上次停机期间的变更没落盘。
+  sync(store.worn());
+
   const disposeApi = installApi(ctx, { store, pluginVersion: pkg.version });
   const disposeContext = installWornContext(ctx, store, onIssue);
 
@@ -63,6 +71,7 @@ export const apply = async (ctx, config = {}) => {
   console.log(`[dsh-wardrobe] 已启用 data=${dataDir} 衣服=${store.count()} 件 当前穿着=${store.worn().map((w) => `${w.item.title}(${w.parts.join('/')})`).join(' + ') || '无'}`);
 
   return async () => {
+    unsubscribe();
     for (const dispose of registered.reverse()) { try { dispose?.(); } catch {} }
     disposeContext();
     await disposeApi();

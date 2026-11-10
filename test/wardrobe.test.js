@@ -6,6 +6,7 @@ import path from 'node:path';
 import { WardrobeStore } from '../src/store.js';
 import { installApi } from '../src/api.js';
 import { toolSpecs } from '../src/tools.js';
+import { syncGarment } from '../src/garment-sync.js';
 
 const tmpdir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wardrobe-'));
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
@@ -415,5 +416,42 @@ test('穿衣/脱衣工具：按 id 穿脱，改的是当前穿着不是衣服资
 
     const all = await specs.wardrobe_unwear.execute({ id: coat.id });
     assert.match(all.text, /什么都没穿/);
+  } finally { store.close(); }
+});
+
+
+test('穿着一变就同步到 ComfyUI 输入槽：主图 + 叠加图 + 清单', () => {
+  const dir = tmpdir();
+  const comfy = path.join(dir, 'comfy-input');
+  const store = new WardrobeStore(path.join(dir, 'db'));
+  try {
+    const dress = store.create({ title: '冰蓝裙', type: '连衣裙', body: '腰、大腿', prompt: 'icy blue dress', image: store.saveImage(PNG) });
+    const coat = store.create({ title: '卡其外套', type: '外套', body: '肩', prompt: 'khaki coat', image: store.saveImage(PNG) });
+
+    // 没穿的时候不动任何东西
+    assert.deepEqual(syncGarment(store, { comfyInput: comfy }), { synced: false, reason: 'nothing_worn' });
+
+    let synced = null;
+    const off = store.onWornChange((worn) => { synced = syncGarment(store, { comfyInput: comfy }); });
+    store.wear(dress.id);
+    assert.equal(synced?.synced, true, '穿上要触发同步');
+    assert.ok(fs.existsSync(path.join(comfy, 'her_garment.png')), '主图必须落 her_garment.png');
+    let manifest = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(manifest.items.length, 1);
+    assert.equal(manifest.items[0].title, '冰蓝裙');
+    assert.equal(manifest.workflow_uses, 1, '工作流只用第一件，要写在清单里');
+
+    store.wear(coat.id);
+    manifest = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(manifest.items.length, 2);
+    assert.deepEqual(manifest.items.map((i) => i.title), ['冰蓝裙', '卡其外套'], '顺序按穿上顺序');
+    assert.ok(fs.existsSync(path.join(comfy, 'her_garment_2.png')), '第二件要落 numbered 槽');
+    assert.equal(manifest.items[1].prompt, 'khaki coat', '清单要带英文提示词，生图时用得上');
+
+    // 脱下后回到一件
+    store.unwear(coat.id);
+    manifest = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(manifest.items.length, 1);
+    off();
   } finally { store.close(); }
 });
