@@ -19,10 +19,10 @@ const PART_ALIASES = new Map(Object.entries({
   肩: '肩', 肩部: '肩', 肩膀: '肩',
   胸: '胸', 胸部: '胸',
   背: '背', 背部: '背',
-  腹: '腹', 腹部: '腹', 小腹: '腹',
+  腹: '腹', 腹部: '腹', 小腹: '腹', 下腹部: '腹', 上腹部: '腹',
   腰: '腰', 腰部: '腰',
   臀: '臀', 臀部: '臀', 臀部上缘: '臀', 臀上缘: '臀', 上臀: '臀', 胯: '臀', 胯部: '臀',
-  腿: '大腿', 腿部: '大腿', 大腿: '大腿', 大腿部: '大腿', 大腿上部: '大腿',
+  腿: '大腿', 腿部: '大腿', 大腿: '大腿', 大腿部: '大腿', 大腿上部: '大腿', 大腿根部: '大腿', 大腿内侧: '大腿',
   膝: '膝', 膝部: '膝', 膝盖: '膝',
   小腿: '小腿', 小腿部: '小腿',
   脚: '脚', 脚部: '脚', 足: '脚', 脚踝: '脚',
@@ -56,7 +56,9 @@ function text(value, field, limit) {
   return out;
 }
 
-const bodyTokens = value => String(value ?? '').split(BODY_SEP).map(normalizePart).filter(Boolean);
+// 归一之后再去重：「臀部」和「胯部」都落到臀，「大腿根部」和「大腿上部」都落到大腿，
+// 不去重就会写出「臀、臀、大腿、大腿」。
+const bodyTokens = value => [...new Set(String(value ?? '').split(BODY_SEP).map(normalizePart).filter(Boolean))];
 
 export class WardrobeStore {
   constructor(directory) {

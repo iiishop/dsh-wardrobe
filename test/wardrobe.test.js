@@ -464,3 +464,12 @@ test('部位写法带括号说明也能归位', () => {
     assert.deepEqual(item.body.split('、'), ['颈', '臀', '手腕', '前臂'], `实际：${item.body}`);
   } finally { store.close(); }
 });
+
+
+test('归一后重复的部位只留一个', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '运动短裤', body: '臀部、胯部、大腿根部、大腿上部、腰' });
+    assert.deepEqual(item.body.split('、'), ['臀', '大腿', '腰'], `实际：${item.body}`);
+  } finally { store.close(); }
+});
