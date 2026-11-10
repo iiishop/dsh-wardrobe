@@ -74,7 +74,7 @@ window.__ModuleLoader__.load({
           h('button', { className: 'dw-btn', disabled: busy, onClick: onCancel }, '取消')));
     }
 
-    function Card({ item, onEdit, onDelete, onWear, isWorn, busy }) {
+    function Card({ item, onEdit, onDelete, onWear, isWorn, wornParts, busy }) {
       return h('li', { className: 'dw-card' + (isWorn ? ' dw-worn' : '') },
         item.image
           ? h('img', { className: 'dw-thumb', src: `${IMAGE}?name=${encodeURIComponent(item.image)}`, alt: item.title })
@@ -87,21 +87,21 @@ window.__ModuleLoader__.load({
           item.description ? h('p', { className: 'dw-text' }, item.description) : h('p', { className: 'dw-muted' }, '还没有给 AI 的描述'),
           item.prompt ? h('details', null, h('summary', null, '绘图提示词'), h('p', { className: 'dw-text dw-mono' }, item.prompt)) : h('p', { className: 'dw-muted' }, '还没有绘图提示词'),
           h('div', { className: 'dw-row' },
-            h('button', { className: 'dw-btn', disabled: busy || isWorn, onClick: () => onWear(item) }, isWorn ? '穿着中' : '穿上'),
+            h('button', { className: 'dw-btn', disabled: busy, onClick: () => onWear(item) }, isWorn ? '脱下' : '穿上'),
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => onEdit(item) }, '编辑'),
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => onDelete(item) }, '删掉'))));
     }
 
     function Wardrobe() {
       const [items, setItems] = useState(null);
-      const [wornId, setWornId] = useState('');
+      const [worn, setWorn] = useState([]);
       const [draft, setDraft] = useState(null);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState(null);
       const [notice, setNotice] = useState(null);
       const load = useCallback(async () => {
         setBusy(true);
-        try { const data = await request(API); setItems(data.items); setWornId(data.wornId ?? ''); setError(null); }
+        try { const data = await request(API); setItems(data.items); setWorn(data.worn ?? []); setError(null); }
         catch (e) { setError(e); }
         finally { setBusy(false); }
       }, []);
@@ -121,11 +121,12 @@ window.__ModuleLoader__.load({
         finally { setBusy(false); }
       };
       const wear = async (item) => {
-        setBusy(true); setError(null);
+        setBusy(true); setError(null); setNotice(null);
+        const already = worn.some((w) => w.id === item.id);
         try {
-          const data = await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: item.id === wornId ? 'unwear' : 'wear', id: item.id }) });
-          setWornId(data.worn?.id ?? '');
-          setNotice(data.worn ? `穿上了：${data.worn.title}` : '脱下了');
+          const data = await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: already ? 'unwear' : 'wear', id: item.id }) });
+          setWorn(data.worn ?? []);
+          setNotice(already ? `脱下了：${item.title}` : `穿上了：${item.title}（${(data.parts ?? []).join('、')}）`);
         } catch (e) { setError(e); }
         finally { setBusy(false); }
       };
@@ -135,19 +136,20 @@ window.__ModuleLoader__.load({
         try {
           await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: item.id }) });
           setItems((list) => (list ?? []).filter((x) => x.id !== item.id));
-          if (item.id === wornId) setWornId('');
+          setWorn((list) => (list ?? []).filter((w) => w.id !== item.id));
           setNotice(`删掉了：${item.title}`);
         } catch (e) { setError(e); }
         finally { setBusy(false); }
       };
 
-      const wornItem = (items ?? []).find((x) => x.id === wornId) ?? null;
       return h('div', { className: 'dw-root' },
         h('style', null, css),
         h('div', { className: 'dw-head' },
           h('h2', { className: 'dw-title' }, '衣柜', items ? h('span', { className: 'dw-count' }, `${items.length} 件`) : null),
           h('div', { className: 'dw-row' },
-            wornItem ? h('span', { className: 'dw-wornline' }, '穿着：', h('strong', null, wornItem.title)) : null,
+            worn.length ? h('div', { className: 'dw-wornline' }, '穿着：',
+              worn.map((w) => h('span', { key: w.id, className: 'dw-wornchip', title: w.parts.join('、') },
+                h('em', null, w.parts.join('/')), ' ', h('strong', null, w.title)))) : null,
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => void load() }, busy ? '读取中…' : '刷新'),
             h('button', { className: 'dw-btn dw-primary', disabled: busy || !!draft, onClick: () => { setDraft({ ...emptyDraft }); setNotice(null); setError(null); } }, '添一件'))),
         notice ? h('p', { className: 'dw-notice', role: 'status' }, notice) : null,
@@ -156,7 +158,7 @@ window.__ModuleLoader__.load({
         draft ? h(Form, { draft, onChange: setDraft, onSave: save, onCancel: () => { setDraft(null); setError(null); }, busy, error }) : null,
         items === null ? h('p', { className: 'dw-muted' }, '读取中…')
           : items.length === 0 && !draft ? h('p', { className: 'dw-empty' }, '还是空的。点「添一件」开始。')
-            : h('ul', { className: 'dw-list' }, items.map((item) => h(Card, { key: item.id, item, busy, isWorn: item.id === wornId, onWear: wear, onEdit: (x) => { setDraft({ ...x }); setError(null); setNotice(null); }, onDelete: remove }))));
+            : h('ul', { className: 'dw-list' }, items.map((item) => h(Card, { key: item.id, item, busy, isWorn: worn.some((w) => w.id === item.id), wornParts: worn.find((w) => w.id === item.id)?.parts ?? [], onWear: wear, onEdit: (x) => { setDraft({ ...x }); setError(null); setNotice(null); }, onDelete: remove }))));
     }
 
     const css = `
@@ -191,8 +193,11 @@ window.__ModuleLoader__.load({
 .dw-tag{font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(128,128,128,.135);opacity:.85}
 .dw-tag-dim{opacity:.55}
 .dw-worn{border-color:rgba(128,128,128,.34)}
-.dw-wornline{font-size:12px;opacity:.55;margin-right:6px}
-.dw-wornline strong{font-weight:600;opacity:.9}
+.dw-wornline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;opacity:.7;margin-right:6px}
+.dw-wornline>strong{font-weight:600;opacity:.9}
+.dw-wornchip{display:inline-flex;align-items:baseline;gap:4px;padding:1px 8px;border-radius:999px;background:rgba(128,128,128,.13);font-size:11.5px}
+.dw-wornchip em{font-style:normal;opacity:.55;font-size:10.5px}
+.dw-wornchip strong{font-weight:600}
 .dw-thumb{width:96px;height:96px;flex:none;object-fit:cover;border-radius:10px;background:rgba(128,128,128,.08)}
 .dw-thumb-lg{width:132px;height:132px;object-fit:cover;border-radius:12px;background:rgba(128,128,128,.08)}
 .dw-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:11.5px;opacity:.4;border:1px dashed rgba(128,128,128,.25)}

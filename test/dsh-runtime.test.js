@@ -82,7 +82,7 @@ test('真实宿主：四个工具注册可用，当前穿着进入模型请求',
 
     // 4) 脱下之后下一轮就不带了
     const store = new WardrobeStore(dataDir);
-    store.unwear();
+    store.unwear(worn.id);
     store.close();
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '那这件呢' }] }));
     await agent.whenIdle();

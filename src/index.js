@@ -28,8 +28,9 @@ function installWornContext(ctx, store, onIssue) {
       text: () => {
         try {
           const worn = store.worn();
-          if (!worn) return '';
-          return `【现在穿着】${worn.title}${worn.type ? `（${worn.type}）` : ''}${worn.description ? `\n${worn.description}` : ''}`;
+          if (!worn.length) return '';
+          const lines = worn.map(({ item, parts }) => `- 穿在${parts.join('、')}：${item.title}${item.type ? `（${item.type}）` : ''}${item.description ? `\n  ${item.description}` : ''}`);
+          return `【现在穿着】衣柜里她此刻穿在身上的（按身体部位）：\n${lines.join('\n')}`;
         } catch (error) { onIssue({ code: 'WORN_CONTEXT_FAILED', detail: String(error?.message ?? error) }); return ''; }
       },
     }));
@@ -59,7 +60,7 @@ export const apply = async (ctx, config = {}) => {
     console.log(`[dsh-wardrobe] 工具注册失败：${error?.message ?? error}`);
   }
 
-  console.log(`[dsh-wardrobe] 已启用 data=${dataDir} 衣服=${store.count()} 件 当前穿着=${store.worn()?.title ?? '无'}`);
+  console.log(`[dsh-wardrobe] 已启用 data=${dataDir} 衣服=${store.count()} 件 当前穿着=${store.worn().map((w) => `${w.item.title}(${w.parts.join('/')})`).join(' + ') || '无'}`);
 
   return async () => {
     for (const dispose of registered.reverse()) { try { dispose?.(); } catch {} }

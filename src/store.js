@@ -52,6 +52,21 @@ export class WardrobeStore {
     for (const [name, ddl] of [['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"], ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"]]) {
       if (!columns.has(name)) this.db.exec(ddl);
     }
+    this.migrateWorn();
+  }
+
+  /**
+   * 当前穿着存成一个 id 数组（不按部位占坑，穿另一件只是加一件，谁也不顶掉谁）。
+   * 迁移两种历史格式：最早的单个 id 字符串、后来的 {部位: id} 表。
+   */
+  migrateWorn() {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key='worn'").get();
+    if (!row?.value) return;
+    let parsed;
+    try { parsed = JSON.parse(row.value); } catch { parsed = String(row.value); }
+    if (Array.isArray(parsed)) return; // 已是新格式
+    const ids = parsed && typeof parsed === 'object' ? [...new Set(Object.values(parsed))] : [String(row.value)];
+    this.saveWorn(ids.filter((id) => this.get(id)));
   }
 
   list() { return this.db.prepare('SELECT * FROM items ORDER BY created_at').all().map(decode); }
@@ -125,7 +140,7 @@ export class WardrobeStore {
     const before = this.get(id);
     requireValue(before, 'item_not_found');
     this.db.prepare('DELETE FROM items WHERE id=?').run(before.id);
-    if (this.wornId() === before.id) this.unwear();
+    this.unwear(before.id);
     return before;
   }
 
@@ -136,21 +151,52 @@ export class WardrobeStore {
     return name;
   }
 
-  wornId() {
+  /** 正在穿的 id 列表（保持穿上顺序）。 */
+  wornIds() {
     const row = this.db.prepare("SELECT value FROM meta WHERE key='worn'").get();
-    return row?.value ?? '';
+    if (!row?.value) return [];
+    try { const parsed = JSON.parse(row.value); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
   }
 
-  /** 当前穿着：单件。id 为空表示没穿（或没设过）。 */
+  saveWorn(ids) {
+    const clean = [...new Set(ids.filter((id) => id && this.get(id)))];
+    if (!clean.length) { this.db.prepare("DELETE FROM meta WHERE key='worn'").run(); return; }
+    this.db.prepare("INSERT OR REPLACE INTO meta VALUES('worn',?)").run(JSON.stringify(clean));
+  }
+
+  /** 当前穿着：每件 + 它覆盖的部位（部位由这件自己的 body 决定）。 */
+  worn() {
+    return this.wornIds().map((id) => this.get(id)).filter(Boolean)
+      .map((item) => ({ item, parts: bodyTokens(item.body) }));
+  }
+
+  /** 穿上一件：只往列表里加，不碰别的衣服。没标部位照样能穿，只是不会出现在任何部位下。 */
   wear(id) {
     const item = this.get(id);
     requireValue(item, 'item_not_found');
-    this.db.prepare("INSERT OR REPLACE INTO meta VALUES('worn',?)").run(item.id);
-    return item;
+    const ids = this.wornIds();
+    if (!ids.includes(item.id)) { ids.push(item.id); this.saveWorn(ids); }
+    return { item, parts: bodyTokens(item.body) };
   }
 
-  unwear() { this.db.prepare("DELETE FROM meta WHERE key='worn'").run(); }
-  worn() { const id = this.wornId(); return id ? this.get(id) : null; }
+  /** 脱下某件：只从列表里去掉这一件，别的衣服一点不动。 */
+  unwear(id) {
+    const target = String(id ?? '');
+    const ids = this.wornIds();
+    const next = ids.filter((x) => x !== target);
+    if (next.length === ids.length) return false;
+    this.saveWorn(next);
+    return true;
+  }
+
+  unwearAll() { this.db.prepare("DELETE FROM meta WHERE key='worn'").run(); }
+
+  /** 部位视角：{部位: [衣服…]}。同一部位可以挂多件（裙子和裤子都盖腿时两件都在）。 */
+  wornByBody() {
+    const map = {};
+    for (const { item, parts } of this.worn()) for (const part of parts) (map[part] ??= []).push(item);
+    return map;
+  }
 
   saveImage(buffer) {
     requireValue(Buffer.isBuffer(buffer) && buffer.length > 0, 'empty_image');

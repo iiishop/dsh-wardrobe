@@ -185,20 +185,77 @@ test('按种类和部位筛；一件标多个部位时命中任意一个都列�
   } finally { store.close(); }
 });
 
-test('当前穿着：能穿能脱，删掉穿着那件会自动脱掉', () => {
+test('当前穿着：多件同时穿，按部位能看出来各自盖哪', () => {
   const store = new WardrobeStore(tmpdir());
   try {
-    const item = store.create({ title: '白衬衫' });
-    assert.equal(store.worn(), null);
-    store.wear(item.id);
-    assert.equal(store.worn().title, '白衬衫');
-    store.unwear();
-    assert.equal(store.worn(), null);
-    store.wear(item.id);
-    store.remove(item.id);
-    assert.equal(store.wornId(), '', '删掉穿着的那件不能留一个指向空气的指针');
+    const dress = store.create({ title: '冰蓝连身裙', type: '针织连衣裙', body: '颈、腰、臀、腿' });
+    const coat = store.create({ title: '卡其外套', type: '外套', body: '肩、手臂' });
+    const boots = store.create({ title: '长靴', type: '鞋', body: '小腿、脚' });
+
+    const first = store.wear(dress.id);
+    assert.deepEqual(first.parts, ['颈', '腰', '臀', '腿']);
+    assert.deepEqual(store.wornIds(), [dress.id]);
+
+    store.wear(coat.id); store.wear(boots.id);
+    assert.deepEqual(store.wornIds(), [dress.id, coat.id, boots.id], '按穿上的顺序排队');
+    assert.deepEqual(store.worn().map((w) => w.item.title), ['冰蓝连身裙', '卡其外套', '长靴']);
+    assert.deepEqual(Object.keys(store.wornByBody()).sort(), ['小腿', '手臂', '肩', '脚', '腿', '臀', '腰', '颈'].sort());
+
+    store.unwear(dress.id);
+    assert.deepEqual(store.worn().map((w) => w.item.title), ['卡其外套', '长靴'], '脱裙子不影响别的');
+    assert.ok(!Object.values(store.wornByBody()).flat().some((x) => x.id === dress.id));
+
+    store.remove(coat.id);
+    assert.ok(!store.worn().some((w) => w.item.id === coat.id), '删掉衣服要顺手脱掉');
     assert.throws(() => store.wear('no-such-id'), /item_not_found/);
   } finally { store.close(); }
+});
+
+test('穿另一件只是加一件，不顶掉原来那件；同部位可以挂多件', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const skirt = store.create({ title: '百褶裙', type: '半身裙', body: '腰、腿' });
+    const pants = store.create({ title: '直筒裤', type: '裤子', body: '腰、腿' });
+    store.wear(skirt.id);
+    store.wear(pants.id);
+    assert.equal(store.worn().length, 2, '两件都在身上，谁也不顶掉谁');
+    const byBody = store.wornByBody();
+    assert.deepEqual(byBody['腿'].map((x) => x.title), ['百褶裙', '直筒裤'], '同一个部位下可以挂两件');
+    assert.deepEqual(byBody['腰'].map((x) => x.title), ['百褶裙', '直筒裤']);
+
+    store.unwear(pants.id);
+    assert.deepEqual(store.worn().map((w) => w.item.title), ['百褶裙'], '脱一件只动那一件');
+    assert.deepEqual(store.wornByBody()['腿'].map((x) => x.title), ['百褶裙']);
+
+    // 重复穿同一件不会变成两件
+    store.wear(skirt.id);
+    store.wear(skirt.id);
+    assert.equal(store.worn().length, 1);
+
+    // 没标部位也能穿，只是不会出现在任何部位下
+    const bare = store.create({ title: '没标部位的东西' });
+    store.wear(bare.id);
+    assert.equal(store.worn().length, 2);
+    assert.ok(!Object.values(store.wornByBody()).flat().some((x) => x.id === bare.id));
+  } finally { store.close(); }
+});
+
+test('旧的穿着记录（单 id 或部位表）都迁移成 id 数组', () => {
+  const dir = tmpdir();
+  const store = new WardrobeStore(dir);
+  const dress = store.create({ title: '老格式裙子', type: '连衣裙', body: '腰、腿' });
+  const coat = store.create({ title: '老格式外套', type: '外套', body: '肩' });
+  store.db.prepare("INSERT OR REPLACE INTO meta VALUES('worn',?)").run(dress.id);
+  store.close();
+  const second = new WardrobeStore(dir);
+  assert.deepEqual(second.wornIds(), [dress.id], '单个 id 字符串要变成数组');
+  second.db.prepare("INSERT OR REPLACE INTO meta VALUES('worn',?)").run(JSON.stringify({ 腰: dress.id, 肩: coat.id, 腿: dress.id }));
+  second.close();
+  const third = new WardrobeStore(dir);
+  try {
+    assert.deepEqual(third.wornIds(), [dress.id, coat.id], '部位表按 id 去重成数组');
+    assert.deepEqual(third.worn().map((w) => w.parts.join('/')), ['腰/腿', '肩']);
+  } finally { third.close(); }
 });
 
 test('她用的四个工具：列表只给 id+标题，细节走 get_cloth', async () => {
@@ -237,19 +294,31 @@ test('她用的四个工具：列表只给 id+标题，细节走 get_cloth', asy
   } finally { store.close(); }
 });
 
-test('接口：穿上/脱下走同一个端点，GET 带 wornId', async () => {
+test('接口：穿上返回占了哪些部位，GET 给完整穿着表', async () => {
   const { store, call } = harness();
   try {
-    const created = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'create', title: '灰毛衣', type: '上衣', body: '胸' } });
+    const created = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'create', title: '灰毛衣', type: '上衣', body: '胸、手臂' } });
     const id = created.json.item.id;
     const worn = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'wear', id } });
     assert.equal(worn.status, 200);
-    assert.equal(worn.json.worn.title, '灰毛衣');
+    assert.deepEqual(worn.json.parts, ['胸', '手臂']);
+    assert.deepEqual(worn.json.worn, [{ id, title: '灰毛衣', parts: ['胸', '手臂'] }]);
+
     const list = await call('/dsh-wardrobe/api');
-    assert.equal(list.json.wornId, id);
-    const off = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'unwear' } });
-    assert.equal(off.json.worn, null);
-    assert.equal((await call('/dsh-wardrobe/api')).json.wornId, '');
+    assert.deepEqual(list.json.worn, [{ id, title: '灰毛衣', parts: ['胸', '手臂'] }]);
+
+    const off = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'unwear', id } });
+    assert.deepEqual(off.json.worn, []);
+    assert.deepEqual((await call('/dsh-wardrobe/api')).json.worn, []);
+
+    // 再把毛衣穿上，然后加一件没标部位的：两件要同时在身上
+    await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'wear', id } });
+    const bare = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'create', title: '没部位' } });
+    const loose = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'wear', id: bare.json.item.id } });
+    assert.equal(loose.status, 200, '没标部位也能穿，只是不落在任何部位下');
+    assert.deepEqual(loose.json.parts, []);
+    assert.equal(loose.json.worn.length, 2, '加一件不顶掉原来那件');
+    assert.deepEqual(loose.json.worn.map((w) => w.title), ['灰毛衣', '没部位']);
   } finally { store.close(); }
 });
 
