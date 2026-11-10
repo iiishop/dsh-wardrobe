@@ -16,7 +16,7 @@ import { LlmRuntime, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
 import wardrobe from '../src/index.js';
 import { WardrobeStore } from '../src/store.js';
 
-test('真实宿主：四个工具注册可用，当前穿着进入模型请求', async () => {
+test('真实宿主：六个工具注册可用，穿衣生效并进入模型请求', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wardrobe-dsh-'));
   const seed = new WardrobeStore(dataDir);
   const worn = seed.create({ title: '冰蓝麻花裙', type: '针织连衣裙', body: '颈、腰、腿', description: '清冷柔和，高领，贴腰臀。', prompt: 'icy blue knit dress' });
@@ -57,7 +57,7 @@ test('真实宿主：四个工具注册可用，当前穿着进入模型请求',
 
     // 1) 工具真的在 schema 里
     const names = ctx.get('tools').schemas(agent).map((t) => t.name);
-    for (const expected of ['wardrobe_list_all', 'wardrobe_list_type', 'wardrobe_list_body', 'wardrobe_get_cloth']) {
+    for (const expected of ['wardrobe_list_all', 'wardrobe_list_type', 'wardrobe_list_body', 'wardrobe_get_cloth', 'wardrobe_wear', 'wardrobe_unwear']) {
       assert.ok(names.includes(expected), `${expected} 没进她的工具表：${names.join(',')}`);
     }
 
@@ -69,7 +69,16 @@ test('真实宿主：四个工具注册可用，当前穿着进入模型请求',
     assert.match(text, /冰蓝麻花裙/);
     assert.match(text, /卡其风衣/);
 
-    // 3) 当前穿着进了真实模型请求
+    // 3) 她真能把衣服穿上（写工具走同一条 ToolRuntime）
+    const peek = new WardrobeStore(dataDir);
+    const coatId = peek.list().find((i) => i.title === '卡其风衣').id;
+    peek.close();
+    const wore = await ctx.get('tools').execute({
+      agent, name: 'wardrobe_wear', arguments: { id: coatId }, callId: 'call-2', signal: new AbortController().signal,
+    });
+    assert.match(JSON.stringify(wore), /穿上了：卡其风衣/, '穿衣工具没生效');
+
+    // 4) 当前穿着进了真实模型请求
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '今天穿什么好' }] }));
     await agent.whenIdle();
     assert.ok(requests.length, '模型没被调用');
@@ -78,11 +87,13 @@ test('真实宿主：四个工具注册可用，当前穿着进入模型请求',
     assert.match(sent, /冰蓝麻花裙/);
     assert.match(sent, /清冷柔和/, '描述应当跟着穿着一起进');
     assert.doesNotMatch(sent, /icy blue knit dress/, '绘图提示词不该进聊天上下文');
+    assert.match(sent, /卡其风衣/, '刚穿上的外套也要进上下文');
     assert.match(sent, /BASE_PERSONA_UNCHANGED/, '原系统提示不能被顶掉');
 
-    // 4) 脱下之后下一轮就不带了
+    // 5) 脱下之后下一轮就不带了
     const store = new WardrobeStore(dataDir);
     store.unwear(worn.id);
+    store.unwear(coatId);   // 第 3 步穿上的外套也得脱掉，否则快照当然还带着它
     store.close();
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '那这件呢' }] }));
     await agent.whenIdle();

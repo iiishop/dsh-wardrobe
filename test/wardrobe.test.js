@@ -263,7 +263,7 @@ test('她用的四个工具：列表只给 id+标题，细节走 get_cloth', asy
   try {
     const item = store.create({ title: '冰蓝麻花裙', type: '针织连衣裙', body: '颈,腰,腿', description: '清冷柔和', prompt: 'icy blue knit dress', image: '' });
     const specs = Object.fromEntries(toolSpecs(store).map((s) => [s.name, s]));
-    assert.deepEqual(Object.keys(specs).sort(), ['wardrobe_get_cloth', 'wardrobe_list_all', 'wardrobe_list_body', 'wardrobe_list_type']);
+    assert.deepEqual(Object.keys(specs).sort(), ['wardrobe_get_cloth', 'wardrobe_list_all', 'wardrobe_list_body', 'wardrobe_list_type', 'wardrobe_unwear', 'wardrobe_wear']);
 
     const all = await specs.wardrobe_list_all.execute({});
     assert.match(all.text, /冰蓝麻花裙/);
@@ -384,4 +384,36 @@ test('老数据打开时自动归一，且重复打开不会改坏', () => {
   again.close();
   const third = new WardrobeStore(dir);
   try { assert.equal(third.get(item.id).body, '腰、大腿', '再开一次不能被改回去'); } finally { third.close(); }
+});
+
+
+test('穿衣/脱衣工具：按 id 穿脱，改的是当前穿着不是衣服资料', async () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const dress = store.create({ title: '冰蓝裙', type: '连衣裙', body: '腰、大腿', description: '清冷' });
+    const coat = store.create({ title: '卡其外套', type: '外套', body: '肩' });
+    const specs = Object.fromEntries(toolSpecs(store).map((s) => [s.name, s]));
+
+    const worn = await specs.wardrobe_wear.execute({ id: dress.id });
+    assert.match(worn.text, /穿上了：冰蓝裙/);
+    assert.match(worn.text, /覆盖 腰、大腿/);
+    assert.match(worn.text, /现在身上：冰蓝裙/);
+
+    const both = await specs.wardrobe_wear.execute({ id: coat.id });
+    assert.match(both.text, /现在身上：冰蓝裙、卡其外套/, '两件要同时在身上');
+    assert.equal(both.meta.worn.length, 2);
+
+    const off = await specs.wardrobe_unwear.execute({ id: dress.id });
+    assert.match(off.text, /脱下了：冰蓝裙/);
+    assert.match(off.text, /现在身上：卡其外套/);
+    assert.equal(store.get(dress.id).description, '清冷', '脱衣服不能动衣服资料');
+
+    const again = await specs.wardrobe_unwear.execute({ id: dress.id });
+    assert.match(again.text, /本来就没穿/);
+    await assert.rejects(() => specs.wardrobe_wear.execute({ id: 'nope' }), /item_not_found/);
+    await assert.rejects(() => specs.wardrobe_unwear.execute({ id: 'nope' }), /item_not_found/);
+
+    const all = await specs.wardrobe_unwear.execute({ id: coat.id });
+    assert.match(all.text, /什么都没穿/);
+  } finally { store.close(); }
 });

@@ -81,6 +81,38 @@ export function toolSpecs(store) {
         return { text: lines.join('\n'), meta: { id: item.id, title: item.title, type: item.type, body: item.body, hasImage: Boolean(item.image) } };
       },
     },
+    {
+      name: 'wardrobe_wear',
+      description: '把衣柜里的某件衣服穿到身上（按 id）。穿上之后「现在穿着」会一直是它，直到你脱下或换掉。可以同时穿多件，不会互相顶掉。id 用 list 类工具拿。',
+      parameters: { id: { type: 'string', description: '要穿的衣服 id' } },
+      output: OUTPUT,
+      execute: async ({ id }) => {
+        const { item, parts } = store.wear(id);
+        const worn = store.worn();
+        return {
+          text: [`穿上了：${item.title}${parts.length ? `（覆盖 ${parts.join('、')}）` : '（这件没标部位）'}`,
+            `现在身上：${worn.map((w) => w.item.title).join('、')}`].join('\n'),
+          meta: { id: item.id, title: item.title, parts, worn: worn.map((w) => ({ id: w.item.id, title: w.item.title, parts: w.parts })) },
+        };
+      },
+    },
+    {
+      name: 'wardrobe_unwear',
+      description: '把某件衣服从身上脱下来（按 id）。只脱这一件，身上别的衣服不受影响。',
+      parameters: { id: { type: 'string', description: '要脱的衣服 id' } },
+      output: OUTPUT,
+      execute: async ({ id }) => {
+        const item = store.get(id);
+        requireValue(item, 'item_not_found');
+        const changed = store.unwear(item.id);
+        const worn = store.worn();
+        if (!changed) return { text: `「${item.title}」本来就没穿在身上。现在身上：${worn.map((w) => w.item.title).join('、') || '什么都没穿'}`, meta: { changed: false } };
+        return {
+          text: [`脱下了：${item.title}`, `现在身上：${worn.map((w) => w.item.title).join('、') || '什么都没穿'}`].join('\n'),
+          meta: { changed: true, worn: worn.map((w) => ({ id: w.item.id, title: w.item.title, parts: w.parts })) },
+        };
+      },
+    },
   ];
 }
 
