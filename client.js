@@ -54,8 +54,9 @@ window.__ModuleLoader__.load({
               ? h('img', { className: 'dw-thumb-lg', src: `${IMAGE}?name=${encodeURIComponent(draft.image)}`, alt: draft.title || '衣服图片' })
               : h('div', { className: 'dw-thumb-lg dw-thumb-empty' }, '还没有图'),
             h('div', { className: 'dw-image-actions' },
-              h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', disabled: busy || uploading, onChange: pickImage }),
-              uploading ? h('span', { className: 'dw-muted' }, '上传中…') : null,
+              h('label', { className: 'dw-btn' },
+                uploading ? '上传中…' : (draft.image ? '换一张' : '选择图片'),
+                h('input', { type: 'file', className: 'dw-file', accept: 'image/png,image/jpeg,image/webp,image/gif', disabled: busy || uploading, onChange: pickImage })),
               draft.image ? h('button', { type: 'button', className: 'dw-btn', disabled: busy, onClick: () => onChange({ ...draft, image: '' }) }, '移除图片') : null))),
         uploadError ? h('div', { className: 'dw-error', role: 'alert' },
           h('strong', null, uploadError.message), h('code', null, uploadError.code), h('p', null, uploadError.hint)) : null,
@@ -158,8 +159,8 @@ window.__ModuleLoader__.load({
   color:inherit;background:rgba(128,128,128,.07);border:1px solid rgba(128,128,128,.16);resize:vertical}
 .dw-field input:focus,.dw-field textarea:focus{outline:none;border-color:rgba(128,128,128,.42)}
 .dw-image-row{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
-.dw-image-actions{display:flex;flex-direction:column;gap:8px}
-.dw-image-actions input[type=file]{font-size:12px;opacity:.75}
+.dw-image-actions{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.dw-file{display:none}
 .dw-form-actions{margin-top:2px}
 .dw-thumb{width:96px;height:96px;flex:none;object-fit:cover;border-radius:10px;background:rgba(128,128,128,.08)}
 .dw-thumb-lg{width:132px;height:132px;object-fit:cover;border-radius:12px;background:rgba(128,128,128,.08)}
