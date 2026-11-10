@@ -11,6 +11,31 @@ const PAGE_SIZE = 10;
 const IMAGE_NAME = /^[A-Za-z0-9_-]{4,80}\.(png|jpg|jpeg|webp|gif)$/;
 // body 可以写多个部位，用这些符号分隔；查询时按 token 匹配。
 const BODY_SEP = /[,，、/|]+/;
+// 部位别名表：同一个部位的不同写法归到同一个词，否则「腰」和「腰部」会被当成两处。
+// 细粒度口径（2026-11-10 用户定）：大腿 / 膝 / 小腿 分开，整条腿的说法一律落到大腿。
+const PART_ALIASES = new Map(Object.entries({
+  头: '头', 头部: '头',
+  颈: '颈', 颈部: '颈', 脖子: '颈',
+  肩: '肩', 肩部: '肩', 肩膀: '肩',
+  胸: '胸', 胸部: '胸',
+  背: '背', 背部: '背',
+  腹: '腹', 腹部: '腹', 小腹: '腹',
+  腰: '腰', 腰部: '腰',
+  臀: '臀', 臀部: '臀',
+  腿: '大腿', 腿部: '大腿', 大腿: '大腿', 大腿部: '大腿', 大腿上部: '大腿',
+  膝: '膝', 膝部: '膝', 膝盖: '膝',
+  小腿: '小腿', 小腿部: '小腿',
+  脚: '脚', 脚部: '脚', 足: '脚', 脚踝: '脚',
+  手臂: '手臂', 臂: '手臂', 胳膊: '手臂', 手臂部: '手臂',
+  手: '手', 手部: '手',
+}));
+
+/** 把写法归一到标准部位词；表里没有的原样保留（不强行拒绝新词）。 */
+const normalizePart = (raw) => {
+  const token = String(raw ?? '').trim();
+  if (!token) return '';
+  return PART_ALIASES.get(token) ?? PART_ALIASES.get(token.toLowerCase()) ?? token;
+};
 
 export function requireValue(ok, message) { if (!ok) throw new Error(message); }
 
@@ -26,7 +51,7 @@ function text(value, field, limit) {
   return out;
 }
 
-const bodyTokens = value => String(value ?? '').split(BODY_SEP).map((x) => x.trim().toLowerCase()).filter(Boolean);
+const bodyTokens = value => String(value ?? '').split(BODY_SEP).map(normalizePart).filter(Boolean);
 
 export class WardrobeStore {
   constructor(directory) {
@@ -55,6 +80,15 @@ export class WardrobeStore {
       if (!columns.has(name)) this.db.exec(ddl);
     }
     this.migrateWorn();
+    this.normalizeBodies();
+  }
+
+  /** 老数据里的「腰部」这类写法统一成标准词，只改 body 列，跑几次结果都一样。 */
+  normalizeBodies() {
+    for (const item of this.list()) {
+      const normalized = bodyTokens(item.body).join('、');
+      if (normalized !== item.body) this.db.prepare('UPDATE items SET body=? WHERE id=?').run(normalized, item.id);
+    }
   }
 
   /**
@@ -116,7 +150,7 @@ export class WardrobeStore {
     this.db.prepare('INSERT INTO items(id,title,type,body,tags,description,prompt,image,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(
       id, title,
       text(input.type, 'type', MAX_TAG),
-      text(input.body, 'body', MAX_TAG),
+      text(bodyTokens(input.body).join('、'), 'body', MAX_TAG),
       text(input.tags, 'tags', MAX_TAGS),
       text(input.description, 'description', MAX_TEXT),
       text(input.prompt, 'prompt', MAX_TEXT),
@@ -133,7 +167,7 @@ export class WardrobeStore {
     const title = pick('title', MAX_TITLE);
     requireValue(title.length > 0, 'title_required');
     this.db.prepare('UPDATE items SET title=?,type=?,body=?,tags=?,description=?,prompt=?,image=?,updated_at=? WHERE id=?').run(
-      title, pick('type', MAX_TAG), pick('body', MAX_TAG), pick('tags', MAX_TAGS), pick('description', MAX_TEXT), pick('prompt', MAX_TEXT),
+      title, pick('type', MAX_TAG), input.body === undefined ? before.body : text(bodyTokens(input.body).join('、'), 'body', MAX_TAG), pick('tags', MAX_TAGS), pick('description', MAX_TEXT), pick('prompt', MAX_TEXT),
       input.image === undefined ? before.image : this.imageNameOrEmpty(input.image),
       new Date().toISOString(), before.id,
     );

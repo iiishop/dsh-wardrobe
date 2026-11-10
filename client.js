@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
           h(Field, { label: '种类', hint: '连衣裙 / 外套 / 上衣；她能按这里的词模糊搜' },
             h('input', { value: draft.type, maxLength: 60, disabled: busy, placeholder: '针织连衣裙',
               onChange: (e) => onChange({ ...draft, type: e.target.value }) })),
-          h(Field, { label: '部位', hint: '多个用逗号分隔' },
+          h(Field, { label: '部位', hint: '颈 肩 胸 背 腹 腰 臀 大腿 膝 小腿；多个用逗号分隔' },
             h('input', { value: draft.body, maxLength: 60, disabled: busy, placeholder: '颈、腰、腿',
               onChange: (e) => onChange({ ...draft, body: e.target.value }) }))),
         h(Field, { label: '标签', hint: '关键词，逗号分隔；她能按这些词搜到' },

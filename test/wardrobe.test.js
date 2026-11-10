@@ -188,18 +188,18 @@ test('按种类和部位筛；一件标多个部位时命中任意一个都列�
 test('当前穿着：多件同时穿，按部位能看出来各自盖哪', () => {
   const store = new WardrobeStore(tmpdir());
   try {
-    const dress = store.create({ title: '冰蓝连身裙', type: '针织连衣裙', body: '颈、腰、臀、腿' });
+    const dress = store.create({ title: '冰蓝连身裙', type: '针织连衣裙', body: '颈、腰、臀、腿' });  // 腿 → 大腿
     const coat = store.create({ title: '卡其外套', type: '外套', body: '肩、手臂' });
     const boots = store.create({ title: '长靴', type: '鞋', body: '小腿、脚' });
 
     const first = store.wear(dress.id);
-    assert.deepEqual(first.parts, ['颈', '腰', '臀', '腿']);
+    assert.deepEqual(first.parts, ['颈', '腰', '臀', '大腿'], '腿归一成大腿');
     assert.deepEqual(store.wornIds(), [dress.id]);
 
     store.wear(coat.id); store.wear(boots.id);
     assert.deepEqual(store.wornIds(), [dress.id, coat.id, boots.id], '按穿上的顺序排队');
     assert.deepEqual(store.worn().map((w) => w.item.title), ['冰蓝连身裙', '卡其外套', '长靴']);
-    assert.deepEqual(Object.keys(store.wornByBody()).sort(), ['小腿', '手臂', '肩', '脚', '腿', '臀', '腰', '颈'].sort());
+    assert.deepEqual(Object.keys(store.wornByBody()).sort(), ['小腿', '手臂', '肩', '脚', '大腿', '臀', '腰', '颈'].sort());
 
     store.unwear(dress.id);
     assert.deepEqual(store.worn().map((w) => w.item.title), ['卡其外套', '长靴'], '脱裙子不影响别的');
@@ -220,12 +220,12 @@ test('穿另一件只是加一件，不顶掉原来那件；同部位可以挂�
     store.wear(pants.id);
     assert.equal(store.worn().length, 2, '两件都在身上，谁也不顶掉谁');
     const byBody = store.wornByBody();
-    assert.deepEqual(byBody['腿'].map((x) => x.title), ['百褶裙', '直筒裤'], '同一个部位下可以挂两件');
+    assert.deepEqual(byBody['大腿'].map((x) => x.title), ['百褶裙', '直筒裤'], '同一个部位下可以挂两件');
     assert.deepEqual(byBody['腰'].map((x) => x.title), ['百褶裙', '直筒裤']);
 
     store.unwear(pants.id);
     assert.deepEqual(store.worn().map((w) => w.item.title), ['百褶裙'], '脱一件只动那一件');
-    assert.deepEqual(store.wornByBody()['腿'].map((x) => x.title), ['百褶裙']);
+    assert.deepEqual(store.wornByBody()['大腿'].map((x) => x.title), ['百褶裙']);
 
     // 重复穿同一件不会变成两件
     store.wear(skirt.id);
@@ -254,7 +254,7 @@ test('旧的穿着记录（单 id 或部位表）都迁移成 id 数组', () => 
   const third = new WardrobeStore(dir);
   try {
     assert.deepEqual(third.wornIds(), [dress.id, coat.id], '部位表按 id 去重成数组');
-    assert.deepEqual(third.worn().map((w) => w.parts.join('/')), ['腰/腿', '肩']);
+    assert.deepEqual(third.worn().map((w) => w.parts.join('/')), ['腰/大腿', '肩']);
   } finally { third.close(); }
 });
 
@@ -354,4 +354,34 @@ test('标签：能存能搜，超长会拒', () => {
     const renamed = store.update(item.id, { title: '冰蓝缎面睡裙' });
     assert.equal(renamed.tags, item.tags, '改标题不能把标签清掉');
   } finally { store.close(); }
+});
+
+
+test('部位别名归一：腰部/胸部/大腿上部都落到标准词，腿归到大腿', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '测试裙', body: '颈部、胸部、背部、腹部、腰部、臀部、大腿上部、膝部、小腿' });
+    assert.equal(item.body, '颈、胸、背、腹、腰、臀、大腿、膝、小腿');
+    assert.equal(store.create({ title: '整条腿', body: '腿' }).body, '大腿');
+    assert.equal(store.create({ title: '多个', body: '腿,膝盖,脚踝' }).body, '大腿、膝、脚');
+    // 表里没有的词原样保留，不拒绝新写法
+    assert.equal(store.create({ title: '怪词', body: '头发' }).body, '头发');
+    // 查询也用别名：搜「腿」要能命中标成「大腿」的衣服
+    assert.equal(store.page({ body: '腿' }).total, 3);
+    assert.equal(store.page({ body: '大腿' }).total, 3);
+    assert.equal(store.page({ body: '小腿' }).total, 1, '小腿不能被大腿带出来');
+  } finally { store.close(); }
+});
+
+test('老数据打开时自动归一，且重复打开不会改坏', () => {
+  const dir = tmpdir();
+  const store = new WardrobeStore(dir);
+  const item = store.create({ title: '老写法', body: '腰' });
+  store.db.prepare('UPDATE items SET body=? WHERE id=?').run('腰部、大腿上部', item.id);
+  store.close();
+  const again = new WardrobeStore(dir);
+  assert.equal(again.get(item.id).body, '腰、大腿');
+  again.close();
+  const third = new WardrobeStore(dir);
+  try { assert.equal(third.get(item.id).body, '腰、大腿', '再开一次不能被改回去'); } finally { third.close(); }
 });
