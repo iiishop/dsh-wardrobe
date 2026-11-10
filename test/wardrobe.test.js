@@ -455,3 +455,12 @@ test('穿着一变就同步到 ComfyUI 输入槽：主图 + 叠加图 + 清单',
     off();
   } finally { store.close(); }
 });
+
+
+test('部位写法带括号说明也能归位', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '运动夹克', body: '颈部（衣领）、臀部上缘、手腕(袖口)、小臂' });
+    assert.deepEqual(item.body.split('、'), ['颈', '臀', '手腕', '前臂'], `实际：${item.body}`);
+  } finally { store.close(); }
+});

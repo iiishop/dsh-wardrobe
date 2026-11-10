@@ -21,7 +21,7 @@ const PART_ALIASES = new Map(Object.entries({
   背: '背', 背部: '背',
   腹: '腹', 腹部: '腹', 小腹: '腹',
   腰: '腰', 腰部: '腰',
-  臀: '臀', 臀部: '臀',
+  臀: '臀', 臀部: '臀', 臀部上缘: '臀', 臀上缘: '臀', 上臀: '臀', 胯: '臀', 胯部: '臀',
   腿: '大腿', 腿部: '大腿', 大腿: '大腿', 大腿部: '大腿', 大腿上部: '大腿',
   膝: '膝', 膝部: '膝', 膝盖: '膝',
   小腿: '小腿', 小腿部: '小腿',
@@ -36,7 +36,8 @@ const PART_ALIASES = new Map(Object.entries({
 
 /** 把写法归一到标准部位词；表里没有的原样保留（不强行拒绝新词）。 */
 const normalizePart = (raw) => {
-  const token = String(raw ?? '').trim();
+  // 先剥括号说明：「颈部（衣领）」「手腕(袖口)」这类注释不是部位名的一部分。
+  const token = String(raw ?? '').replace(/[（(][^）)]*[）)]/g, '').trim();
   if (!token) return '';
   return PART_ALIASES.get(token) ?? PART_ALIASES.get(token.toLowerCase()) ?? token;
 };
