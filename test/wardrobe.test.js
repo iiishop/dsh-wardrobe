@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { WardrobeStore } from '../src/store.js';
 import { installApi } from '../src/api.js';
+import { toolSpecs } from '../src/tools.js';
 
 const tmpdir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'wardrobe-'));
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
@@ -46,7 +47,7 @@ function harness({ rejection = undefined, connection = true } = {}) {
   return { store, call };
 }
 
-test('一件衣服就是四个字段：标题、给 AI 的描述、绘图提示词、图', () => {
+test('一件衣服就是四个字段（另有种类与部位供筛选）：标题、给 AI 的描述、绘图提示词、图', () => {
   const store = new WardrobeStore(tmpdir());
   try {
     const item = store.create({ title: '米白针织开衫', description: '落肩，袖口卷一圈。', prompt: 'cream knit cardigan, soft light' });
@@ -54,7 +55,7 @@ test('一件衣服就是四个字段：标题、给 AI 的描述、绘图提示�
     assert.equal(item.description, '落肩，袖口卷一圈。');
     assert.equal(item.prompt, 'cream knit cardigan, soft light');
     assert.equal(item.image, '');
-    assert.deepEqual(Object.keys(item).sort(), ['createdAt', 'description', 'id', 'image', 'prompt', 'title', 'updatedAt']);
+    assert.deepEqual(Object.keys(item).sort(), ['body', 'createdAt', 'description', 'id', 'image', 'prompt', 'title', 'type', 'updatedAt']);
     assert.equal(store.list().length, 1);
   } finally { store.close(); }
 });
@@ -150,5 +151,104 @@ test('接口：传图拿文件名，再按名字取回原字节', async () => {
     const junk = await call('/dsh-wardrobe/image', { method: 'POST', body: Buffer.from('plain text') });
     assert.equal(junk.json.code, 'UNSUPPORTED_IMAGE_TYPE');
     assert.ok(junk.json.hint);
+  } finally { store.close(); }
+});
+
+
+test('分页：每页 10 件，页码超界夹到最后一页', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    for (let i = 1; i <= 12; i += 1) store.create({ title: `衣服${i}`, type: i % 2 ? '外套' : '连衣裙', body: i % 3 ? '腰' : '腿' });
+    const first = store.page({});
+    assert.equal(first.total, 12);
+    assert.equal(first.pages, 2);
+    assert.equal(first.items.length, 10);
+    assert.deepEqual(Object.keys(first.items[0]).sort(), ['id', 'title'], '列表只回 id 和标题');
+    assert.equal(store.page({ page: 2 }).items.length, 2);
+    assert.equal(store.page({ page: 99 }).page, 2, '页码越界夹到最后一页');
+    assert.equal(store.page({ page: 0 }).page, 1);
+  } finally { store.close(); }
+});
+
+test('按种类和部位筛；一件标多个部位时命中任意一个都列出', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    store.create({ title: '麻花裙', type: '针织连衣裙', body: '颈,腰,腿' });
+    store.create({ title: '风衣', type: '外套', body: '肩' });
+    store.create({ title: '长靴', type: '鞋', body: '腿,脚' });
+    assert.equal(store.page({ type: '连衣裙' }).total, 1);
+    assert.equal(store.page({ type: '外套' }).items[0].title, '风衣');
+    assert.equal(store.page({ body: '腿' }).total, 2);
+    assert.equal(store.page({ body: '脚' }).items[0].title, '长靴');
+    assert.equal(store.page({ body: '腰' }).total, 1);
+    assert.equal(store.page({ body: '头发' }).total, 0);
+  } finally { store.close(); }
+});
+
+test('当前穿着：能穿能脱，删掉穿着那件会自动脱掉', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '白衬衫' });
+    assert.equal(store.worn(), null);
+    store.wear(item.id);
+    assert.equal(store.worn().title, '白衬衫');
+    store.unwear();
+    assert.equal(store.worn(), null);
+    store.wear(item.id);
+    store.remove(item.id);
+    assert.equal(store.wornId(), '', '删掉穿着的那件不能留一个指向空气的指针');
+    assert.throws(() => store.wear('no-such-id'), /item_not_found/);
+  } finally { store.close(); }
+});
+
+test('她用的四个工具：列表只给 id+标题，细节走 get_cloth', async () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '冰蓝麻花裙', type: '针织连衣裙', body: '颈,腰,腿', description: '清冷柔和', prompt: 'icy blue knit dress', image: '' });
+    const specs = Object.fromEntries(toolSpecs(store).map((s) => [s.name, s]));
+    assert.deepEqual(Object.keys(specs).sort(), ['wardrobe_get_cloth', 'wardrobe_list_all', 'wardrobe_list_body', 'wardrobe_list_type']);
+
+    const all = await specs.wardrobe_list_all.execute({});
+    assert.match(all.text, /冰蓝麻花裙/);
+    assert.ok(all.text.includes(item.id), '列表必须带 id，不然她拿不到细节');
+    assert.ok(!all.text.includes('清冷柔和'), '列表不该把描述塞进来');
+
+    const byType = await specs.wardrobe_list_type.execute({ type: '连衣裙' });
+    assert.match(byType.text, /冰蓝麻花裙/);
+    await assert.rejects(() => specs.wardrobe_list_type.execute({ type: '  ' }), /type_required/);
+
+    const byBody = await specs.wardrobe_list_body.execute({ body: '腿' });
+    assert.match(byBody.text, /冰蓝麻花裙/);
+    await assert.rejects(() => specs.wardrobe_list_body.execute({}), /body_required/);
+
+    const detail = await specs.wardrobe_get_cloth.execute({ id: item.id });
+    assert.match(detail.text, /清冷柔和/);
+    assert.match(detail.text, /icy blue knit dress/);
+    assert.match(detail.text, /针织连衣裙/);
+    assert.match(detail.text, /没有配图/);
+    await assert.rejects(() => specs.wardrobe_get_cloth.execute({ id: 'nope' }), /item_not_found/);
+
+    // 每个工具都必须有 output（缺了宿主会崩）
+    for (const spec of Object.values(specs)) {
+      assert.ok(spec.output?.render, `${spec.name} 缺 output`);
+      assert.equal(typeof spec.description, 'string');
+      assert.ok(spec.description.length > 20, `${spec.name} 描述太短，模型不知道什么时候用`);
+    }
+  } finally { store.close(); }
+});
+
+test('接口：穿上/脱下走同一个端点，GET 带 wornId', async () => {
+  const { store, call } = harness();
+  try {
+    const created = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'create', title: '灰毛衣', type: '上衣', body: '胸' } });
+    const id = created.json.item.id;
+    const worn = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'wear', id } });
+    assert.equal(worn.status, 200);
+    assert.equal(worn.json.worn.title, '灰毛衣');
+    const list = await call('/dsh-wardrobe/api');
+    assert.equal(list.json.wornId, id);
+    const off = await call('/dsh-wardrobe/api', { method: 'POST', body: { action: 'unwear' } });
+    assert.equal(off.json.worn, null);
+    assert.equal((await call('/dsh-wardrobe/api')).json.wornId, '');
   } finally { store.close(); }
 });

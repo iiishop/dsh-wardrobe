@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
       return data;
     }
 
-    const emptyDraft = { id: '', title: '', description: '', prompt: '', image: '' };
+    const emptyDraft = { id: '', title: '', type: '', body: '', description: '', prompt: '', image: '' };
 
     function Field({ label, hint, children }) {
       return h('label', { className: 'dw-field' },
@@ -42,6 +42,13 @@ window.__ModuleLoader__.load({
         h(Field, { label: '标题' },
           h('input', { value: draft.title, maxLength: 120, disabled: busy, placeholder: '比如：米白色针织开衫',
             onChange: (e) => onChange({ ...draft, title: e.target.value }) })),
+        h('div', { className: 'dw-grid2' },
+          h(Field, { label: '种类', hint: '连衣裙 / 外套 / 上衣 / 鞋 …' },
+            h('input', { value: draft.type, maxLength: 60, disabled: busy, placeholder: '针织连衣裙',
+              onChange: (e) => onChange({ ...draft, type: e.target.value }) })),
+          h(Field, { label: '部位', hint: '多个用逗号分隔' },
+            h('input', { value: draft.body, maxLength: 60, disabled: busy, placeholder: '颈、腰、腿',
+              onChange: (e) => onChange({ ...draft, body: e.target.value }) }))),
         h(Field, { label: '给 AI 的描述', hint: '她怎么理解这件衣服：材质、场合、给人的感觉' },
           h('textarea', { rows: 4, value: draft.description, disabled: busy, placeholder: '厚实的米白针织，落肩，袖口卷一圈。适合天冷时窝在家里，也适合套在衬衫外面出门。',
             onChange: (e) => onChange({ ...draft, description: e.target.value }) })),
@@ -67,29 +74,34 @@ window.__ModuleLoader__.load({
           h('button', { className: 'dw-btn', disabled: busy, onClick: onCancel }, '取消')));
     }
 
-    function Card({ item, onEdit, onDelete, busy }) {
-      return h('li', { className: 'dw-card' },
+    function Card({ item, onEdit, onDelete, onWear, isWorn, busy }) {
+      return h('li', { className: 'dw-card' + (isWorn ? ' dw-worn' : '') },
         item.image
           ? h('img', { className: 'dw-thumb', src: `${IMAGE}?name=${encodeURIComponent(item.image)}`, alt: item.title })
           : h('div', { className: 'dw-thumb dw-thumb-empty' }, '无图'),
         h('div', { className: 'dw-card-body' },
           h('h4', { className: 'dw-card-title' }, item.title),
+          (item.type || item.body) ? h('div', { className: 'dw-tags' },
+            item.type ? h('span', { className: 'dw-tag' }, item.type) : null,
+            ...String(item.body || '').split(/[,，、/|]+/).map((x) => x.trim()).filter(Boolean).map((part) => h('span', { key: part, className: 'dw-tag dw-tag-dim' }, part))) : null,
           item.description ? h('p', { className: 'dw-text' }, item.description) : h('p', { className: 'dw-muted' }, '还没有给 AI 的描述'),
           item.prompt ? h('details', null, h('summary', null, '绘图提示词'), h('p', { className: 'dw-text dw-mono' }, item.prompt)) : h('p', { className: 'dw-muted' }, '还没有绘图提示词'),
           h('div', { className: 'dw-row' },
+            h('button', { className: 'dw-btn', disabled: busy || isWorn, onClick: () => onWear(item) }, isWorn ? '穿着中' : '穿上'),
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => onEdit(item) }, '编辑'),
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => onDelete(item) }, '删掉'))));
     }
 
     function Wardrobe() {
       const [items, setItems] = useState(null);
+      const [wornId, setWornId] = useState('');
       const [draft, setDraft] = useState(null);
       const [busy, setBusy] = useState(false);
       const [error, setError] = useState(null);
       const [notice, setNotice] = useState(null);
       const load = useCallback(async () => {
         setBusy(true);
-        try { const data = await request(API); setItems(data.items); setError(null); }
+        try { const data = await request(API); setItems(data.items); setWornId(data.wornId ?? ''); setError(null); }
         catch (e) { setError(e); }
         finally { setBusy(false); }
       }, []);
@@ -108,22 +120,34 @@ window.__ModuleLoader__.load({
         } catch (e) { setError(e); }
         finally { setBusy(false); }
       };
+      const wear = async (item) => {
+        setBusy(true); setError(null);
+        try {
+          const data = await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: item.id === wornId ? 'unwear' : 'wear', id: item.id }) });
+          setWornId(data.worn?.id ?? '');
+          setNotice(data.worn ? `穿上了：${data.worn.title}` : '脱下了');
+        } catch (e) { setError(e); }
+        finally { setBusy(false); }
+      };
       const remove = async (item) => {
         if (!window.confirm(`删掉「${item.title}」？`)) return;
         setBusy(true); setError(null);
         try {
           await request(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: item.id }) });
           setItems((list) => (list ?? []).filter((x) => x.id !== item.id));
+          if (item.id === wornId) setWornId('');
           setNotice(`删掉了：${item.title}`);
         } catch (e) { setError(e); }
         finally { setBusy(false); }
       };
 
+      const wornItem = (items ?? []).find((x) => x.id === wornId) ?? null;
       return h('div', { className: 'dw-root' },
         h('style', null, css),
         h('div', { className: 'dw-head' },
           h('h2', { className: 'dw-title' }, '衣柜', items ? h('span', { className: 'dw-count' }, `${items.length} 件`) : null),
           h('div', { className: 'dw-row' },
+            wornItem ? h('span', { className: 'dw-wornline' }, '穿着：', h('strong', null, wornItem.title)) : null,
             h('button', { className: 'dw-btn', disabled: busy, onClick: () => void load() }, busy ? '读取中…' : '刷新'),
             h('button', { className: 'dw-btn dw-primary', disabled: busy || !!draft, onClick: () => { setDraft({ ...emptyDraft }); setNotice(null); setError(null); } }, '添一件'))),
         notice ? h('p', { className: 'dw-notice', role: 'status' }, notice) : null,
@@ -132,7 +156,7 @@ window.__ModuleLoader__.load({
         draft ? h(Form, { draft, onChange: setDraft, onSave: save, onCancel: () => { setDraft(null); setError(null); }, busy, error }) : null,
         items === null ? h('p', { className: 'dw-muted' }, '读取中…')
           : items.length === 0 && !draft ? h('p', { className: 'dw-empty' }, '还是空的。点「添一件」开始。')
-            : h('ul', { className: 'dw-list' }, items.map((item) => h(Card, { key: item.id, item, busy, onEdit: (x) => { setDraft({ ...x }); setError(null); setNotice(null); }, onDelete: remove }))));
+            : h('ul', { className: 'dw-list' }, items.map((item) => h(Card, { key: item.id, item, busy, isWorn: item.id === wornId, onWear: wear, onEdit: (x) => { setDraft({ ...x }); setError(null); setNotice(null); }, onDelete: remove }))));
     }
 
     const css = `
@@ -162,6 +186,13 @@ window.__ModuleLoader__.load({
 .dw-image-actions{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
 .dw-file{display:none}
 .dw-form-actions{margin-top:2px}
+.dw-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dw-tags{display:flex;flex-wrap:wrap;gap:6px}
+.dw-tag{font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(128,128,128,.135);opacity:.85}
+.dw-tag-dim{opacity:.55}
+.dw-worn{border-color:rgba(128,128,128,.34)}
+.dw-wornline{font-size:12px;opacity:.55;margin-right:6px}
+.dw-wornline strong{font-weight:600;opacity:.9}
 .dw-thumb{width:96px;height:96px;flex:none;object-fit:cover;border-radius:10px;background:rgba(128,128,128,.08)}
 .dw-thumb-lg{width:132px;height:132px;object-fit:cover;border-radius:12px;background:rgba(128,128,128,.08)}
 .dw-thumb-empty{display:flex;align-items:center;justify-content:center;font-size:11.5px;opacity:.4;border:1px dashed rgba(128,128,128,.25)}

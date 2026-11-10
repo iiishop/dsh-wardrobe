@@ -31,6 +31,10 @@ function readBody(req, limit, { json = true } = {}) {
 const CODE_HINTS = {
   TITLE_REQUIRED: '标题不能空。',
   TITLE_TOO_LONG: '标题太长了，压到 120 字以内。',
+  TYPE_TOO_LONG: '种类名太长了，压到 60 字以内。',
+  BODY_TOO_LONG: '部位写太长了，压到 60 字以内。',
+  TYPE_REQUIRED: '得说按哪个种类查。',
+  BODY_REQUIRED: '得说按哪个部位查。',
   DESCRIPTION_TOO_LONG: 'AI 描述太长了，压到 8000 字以内。',
   PROMPT_TOO_LONG: '绘图提示词太长了，压到 8000 字以内。',
   ITEM_NOT_FOUND: '这件衣服已经不在了，刷新页面再看。',
@@ -69,7 +73,7 @@ export function installApi(ctx, { store, pluginVersion }) {
     handler: async (req, res) => {
       if (!guard(req, res)) return;
       try {
-        if (req.method === 'GET') return send(res, 200, { ok: true, pluginVersion, items: store.list() });
+        if (req.method === 'GET') return send(res, 200, { ok: true, pluginVersion, items: store.list(), wornId: store.wornId() });
         if (req.method !== 'POST') return fail(res, 405, 'METHOD_NOT_ALLOWED', '只接受 GET / POST');
         const body = await readBody(req, MAX_JSON);
         const id = String(body.id ?? '');
@@ -77,6 +81,14 @@ export function installApi(ctx, { store, pluginVersion }) {
         if (body.action === 'update') {
           requireValue(id, 'item_not_found');
           return send(res, 200, { ok: true, item: store.update(id, body) });
+        }
+        if (body.action === 'wear') {
+          requireValue(id, 'item_not_found');
+          return send(res, 200, { ok: true, worn: store.wear(id) });
+        }
+        if (body.action === 'unwear') {
+          store.unwear();
+          return send(res, 200, { ok: true, worn: null });
         }
         if (body.action === 'delete') {
           requireValue(id, 'item_not_found');
