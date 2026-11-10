@@ -1,0 +1,25 @@
+{
+  "name": "dsh-wardrobe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "衣柜：给 DSH 角色收衣服。每件 = 标题 + 给 AI 的描述 + 给绘图模型的提示词 + 一张图。",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "src",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": { "node": ">=24" },
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": { "platform": "web", "inject": [] }
+  },
+  "license": "MIT"
+}
