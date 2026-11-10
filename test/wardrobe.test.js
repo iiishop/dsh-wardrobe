@@ -55,7 +55,7 @@ test('一件衣服就是四个字段（另有种类与部位供筛选）：标�
     assert.equal(item.description, '落肩，袖口卷一圈。');
     assert.equal(item.prompt, 'cream knit cardigan, soft light');
     assert.equal(item.image, '');
-    assert.deepEqual(Object.keys(item).sort(), ['body', 'createdAt', 'description', 'id', 'image', 'prompt', 'title', 'type', 'updatedAt']);
+    assert.deepEqual(Object.keys(item).sort(), ['body', 'createdAt', 'description', 'id', 'image', 'prompt', 'tags', 'title', 'type', 'updatedAt']);
     assert.equal(store.list().length, 1);
   } finally { store.close(); }
 });
@@ -338,5 +338,20 @@ test('种类改成模糊搜索：针织、连衣裙、颜色冰蓝都能搜到�
     assert.equal(store.page({ query: '冰蓝 风衣' }).total, 0, '两个词分属不同衣服时不能串');
     assert.equal(store.page({ query: '牛仔' }).total, 0);
     assert.equal(store.page({ query: '   ' }).total, 3, '空查询就是全部');
+  } finally { store.close(); }
+});
+
+
+test('标签：能存能搜，超长会拒', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const item = store.create({ title: '冰蓝睡裙', type: '睡裙', body: '胸、腰', tags: '冰蓝色、吊带裙、蕾丝拼接、甜美风、居家服' });
+    assert.match(item.tags, /蕾丝拼接/);
+    assert.equal(store.page({ query: '甜美风' }).total, 1, '标签词也要能被模糊搜到');
+    assert.equal(store.page({ query: '居家' }).total, 1);
+    assert.equal(store.page({ query: '冰蓝 蕾丝' }).total, 1, '标题词 + 标签词组合命中也算');
+    assert.throws(() => store.create({ title: 'x', tags: 'x'.repeat(601) }), /tags_too_long/);
+    const renamed = store.update(item.id, { title: '冰蓝缎面睡裙' });
+    assert.equal(renamed.tags, item.tags, '改标题不能把标签清掉');
   } finally { store.close(); }
 });

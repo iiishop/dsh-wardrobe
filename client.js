@@ -16,7 +16,7 @@ window.__ModuleLoader__.load({
       return data;
     }
 
-    const emptyDraft = { id: '', title: '', type: '', body: '', description: '', prompt: '', image: '' };
+    const emptyDraft = { id: '', title: '', type: '', body: '', tags: '', description: '', prompt: '', image: '' };
 
     function Field({ label, hint, children }) {
       return h('label', { className: 'dw-field' },
@@ -49,6 +49,9 @@ window.__ModuleLoader__.load({
           h(Field, { label: '部位', hint: '多个用逗号分隔' },
             h('input', { value: draft.body, maxLength: 60, disabled: busy, placeholder: '颈、腰、腿',
               onChange: (e) => onChange({ ...draft, body: e.target.value }) }))),
+        h(Field, { label: '标签', hint: '关键词，逗号分隔；她能按这些词搜到' },
+          h('textarea', { rows: 2, value: draft.tags, maxLength: 600, disabled: busy, placeholder: '冰蓝色，吊带裙，蕾丝拼接，甜美风',
+            onChange: (e) => onChange({ ...draft, tags: e.target.value }) })),
         h(Field, { label: '给 AI 的描述', hint: '她怎么理解这件衣服：材质、场合、给人的感觉' },
           h('textarea', { rows: 4, value: draft.description, disabled: busy, placeholder: '厚实的米白针织，落肩，袖口卷一圈。适合天冷时窝在家里，也适合套在衬衫外面出门。',
             onChange: (e) => onChange({ ...draft, description: e.target.value }) })),
@@ -84,6 +87,11 @@ window.__ModuleLoader__.load({
           (item.type || item.body) ? h('div', { className: 'dw-tags' },
             item.type ? h('span', { className: 'dw-tag' }, item.type) : null,
             ...String(item.body || '').split(/[,，、/|]+/).map((x) => x.trim()).filter(Boolean).map((part) => h('span', { key: part, className: 'dw-tag dw-tag-dim' }, part))) : null,
+          item.tags ? h('div', { className: 'dw-tags dw-taglist' },
+            String(item.tags).split(/[,，、]/).map((x) => x.trim()).filter(Boolean).slice(0, 8)
+              .map((tag) => h('span', { key: tag, className: 'dw-tag dw-tag-soft' }, tag)),
+            String(item.tags).split(/[,，、]/).map((x) => x.trim()).filter(Boolean).length > 8
+              ? h('span', { className: 'dw-tag dw-tag-soft' }, `+${String(item.tags).split(/[,，、]/).map((x) => x.trim()).filter(Boolean).length - 8}`) : null) : null,
           item.description ? h('p', { className: 'dw-text' }, item.description) : h('p', { className: 'dw-muted' }, '还没有给 AI 的描述'),
           item.prompt ? h('details', null, h('summary', null, '绘图提示词'), h('p', { className: 'dw-text dw-mono' }, item.prompt)) : h('p', { className: 'dw-muted' }, '还没有绘图提示词'),
           h('div', { className: 'dw-row' },
@@ -192,6 +200,8 @@ window.__ModuleLoader__.load({
 .dw-tags{display:flex;flex-wrap:wrap;gap:6px}
 .dw-tag{font-size:11px;padding:1px 7px;border-radius:999px;background:rgba(128,128,128,.135);opacity:.85}
 .dw-tag-dim{opacity:.55}
+.dw-tag-soft{opacity:.45;background:transparent;border:1px solid rgba(128,128,128,.18)}
+.dw-taglist{margin-top:-3px}
 .dw-worn{border-color:rgba(128,128,128,.34)}
 .dw-wornline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12px;opacity:.7;margin-right:6px}
 .dw-wornline>strong{font-weight:600;opacity:.9}

@@ -37,7 +37,7 @@ export function toolSpecs(store) {
     },
     {
       name: 'wardrobe_list_type',
-      description: '按关键词搜衣服的标题（分页，每页 10 件）。模糊匹配标题和种类字段，所以种类词、颜色词、款式词都能搜：「针织」「连衣裙」「冰蓝」「毛衣」都行。多个词用空格隔开表示都要命中，比如「冰蓝 针织」。只返回 id 和标题，细节用 wardrobe_get_cloth。',
+      description: '按关键词搜衣服的标题（分页，每页 10 件）。模糊匹配标题、种类和标签，所以种类词、颜色词、款式词、风格词都能搜：「针织」「连衣裙」「冰蓝」「睡衣」「甜美风」都行。多个词用空格隔开表示都要命中，比如「冰蓝 针织」。只返回 id 和标题，细节用 wardrobe_get_cloth。',
       parameters: {
         query: { type: 'string', description: '搜索词，比如「针织」「连衣裙」「冰蓝」；多个词用空格分隔表示同时满足' },
         page: pageParam,
@@ -73,6 +73,7 @@ export function toolSpecs(store) {
           `标题：${item.title}`,
           item.type ? `种类：${item.type}` : null,
           item.body ? `部位：${item.body}` : null,
+          item.tags ? `标签：${item.tags}` : null,
           item.description ? `描述：${item.description}` : '描述：（还没写）',
           item.prompt ? `绘图提示词：${item.prompt}` : '绘图提示词：（还没写）',
           item.image ? '有配图。' : '没有配图。',

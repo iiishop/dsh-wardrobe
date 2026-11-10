@@ -6,6 +6,7 @@ import path from 'node:path';
 const MAX_TITLE = 120;
 const MAX_TEXT = 8000;
 const MAX_TAG = 60;
+const MAX_TAGS = 600;
 const PAGE_SIZE = 10;
 const IMAGE_NAME = /^[A-Za-z0-9_-]{4,80}\.(png|jpg|jpeg|webp|gif)$/;
 // body 可以写多个部位，用这些符号分隔；查询时按 token 匹配。
@@ -14,7 +15,7 @@ const BODY_SEP = /[,，、/|]+/;
 export function requireValue(ok, message) { if (!ok) throw new Error(message); }
 
 const decode = row => row ? {
-  id: row.id, title: row.title, type: row.type, body: row.body,
+  id: row.id, title: row.title, type: row.type, body: row.body, tags: row.tags,
   description: row.description, prompt: row.prompt, image: row.image,
   createdAt: row.created_at, updatedAt: row.updated_at,
 } : null;
@@ -40,6 +41,7 @@ export class WardrobeStore {
         title TEXT NOT NULL,
         type TEXT NOT NULL DEFAULT '',
         body TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
         description TEXT NOT NULL DEFAULT '',
         prompt TEXT NOT NULL DEFAULT '',
         image TEXT NOT NULL DEFAULT '',
@@ -49,7 +51,7 @@ export class WardrobeStore {
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);`);
     // 老库补两列（type/body 是后加的），只加不改已有数据。
     const columns = new Set(this.db.prepare('PRAGMA table_info(items)').all().map((c) => c.name));
-    for (const [name, ddl] of [['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"], ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"]]) {
+    for (const [name, ddl] of [['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"], ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"], ['tags', "ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''"]]) {
       if (!columns.has(name)) this.db.exec(ddl);
     }
     this.migrateWorn();
@@ -90,7 +92,7 @@ export class WardrobeStore {
     let rows = this.list();
     if (words.length) {
       rows = rows.filter((r) => {
-        const haystack = `${r.title} ${r.type}`.toLowerCase();
+        const haystack = `${r.title} ${r.type} ${r.tags}`.toLowerCase();
         return words.every((w) => haystack.includes(w));
       });
     }
@@ -110,10 +112,12 @@ export class WardrobeStore {
     requireValue(title.length > 0, 'title_required');
     const now = new Date().toISOString();
     const id = randomUUID();
-    this.db.prepare('INSERT INTO items VALUES(?,?,?,?,?,?,?,?,?)').run(
+    // 必须写列名：老库是 ALTER TABLE 补的 tags，物理列顺序和建表语句不一致。
+    this.db.prepare('INSERT INTO items(id,title,type,body,tags,description,prompt,image,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(
       id, title,
       text(input.type, 'type', MAX_TAG),
       text(input.body, 'body', MAX_TAG),
+      text(input.tags, 'tags', MAX_TAGS),
       text(input.description, 'description', MAX_TEXT),
       text(input.prompt, 'prompt', MAX_TEXT),
       this.imageNameOrEmpty(input.image),
@@ -128,8 +132,8 @@ export class WardrobeStore {
     const pick = (key, limit) => (input[key] === undefined ? before[key] : text(input[key], key, limit));
     const title = pick('title', MAX_TITLE);
     requireValue(title.length > 0, 'title_required');
-    this.db.prepare('UPDATE items SET title=?,type=?,body=?,description=?,prompt=?,image=?,updated_at=? WHERE id=?').run(
-      title, pick('type', MAX_TAG), pick('body', MAX_TAG), pick('description', MAX_TEXT), pick('prompt', MAX_TEXT),
+    this.db.prepare('UPDATE items SET title=?,type=?,body=?,tags=?,description=?,prompt=?,image=?,updated_at=? WHERE id=?').run(
+      title, pick('type', MAX_TAG), pick('body', MAX_TAG), pick('tags', MAX_TAGS), pick('description', MAX_TEXT), pick('prompt', MAX_TEXT),
       input.image === undefined ? before.image : this.imageNameOrEmpty(input.image),
       new Date().toISOString(), before.id,
     );

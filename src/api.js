@@ -33,6 +33,7 @@ const CODE_HINTS = {
   TITLE_TOO_LONG: '标题太长了，压到 120 字以内。',
   TYPE_TOO_LONG: '种类名太长了，压到 60 字以内。',
   BODY_TOO_LONG: '部位写太长了，压到 60 字以内。',
+  TAGS_TOO_LONG: '标签太多了，压到 600 字以内。',
   TYPE_REQUIRED: '得说搜什么词。',
   BODY_REQUIRED_TO_WEAR: '这件还没标部位，标上之后才知道它穿在哪。',
   BODY_REQUIRED: '得说按哪个部位查。',
