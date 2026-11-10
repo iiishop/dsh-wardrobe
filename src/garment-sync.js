@@ -9,6 +9,27 @@
 //   her_garment.json    清单：顺序、id、标题、部位、英文提示词
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const CROP = fileURLToPath(new URL('../scripts/crop-two-view.py', import.meta.url));
+
+/**
+ * 衣柜里的图是「衣服平铺 + 人穿着」拼在一张的产品图。直接整张喂给 Qwen，
+ * 它会把双人排版一起画出来（2026-11-10 实测：成品是两个女生并排）。
+ * 所以落进 ComfyUI 前先裁成单品图：找到中间的缝取左半，再裁掉留白。
+ * 裁不动就原样复制——宁可退回双人图，也不能把衣服裁掉一半。
+ */
+function writeGarment(source, target, log) {
+  try {
+    const out = execFileSync('python3', [CROP, source, target], { encoding: 'utf8', timeout: 30000 }).trim();
+    return out.startsWith('split') ? 'cropped' : 'as-is';
+  } catch (error) {
+    log(`裁图失败，原样复制：${error?.message?.split('\n')[0] ?? error}`);
+    fs.copyFileSync(source, target);
+    return 'copied';
+  }
+}
 
 export function syncGarment(store, { comfyInput, log = () => {} } = {}) {
   if (!comfyInput) return { synced: false, reason: 'no_target' };
@@ -30,8 +51,8 @@ export function syncGarment(store, { comfyInput, log = () => {} } = {}) {
     const name = index === 0 ? 'her_garment.png' : `her_garment_${index + 1}.png`;
     const source = store.imagePath(w.item.image);
     if (!fs.existsSync(source)) { log(`跳过 ${w.item.title}：图片文件不见了`); return; }
-    fs.copyFileSync(source, path.join(comfyInput, name));
-    written.push({ slot: name, id: w.item.id, title: w.item.title, parts: w.parts, prompt: w.item.prompt });
+    const mode = writeGarment(source, path.join(comfyInput, name), log);
+    written.push({ slot: name, id: w.item.id, title: w.item.title, parts: w.parts, prompt: w.item.prompt, image_mode: mode });
   });
   if (!written.length) return { synced: false, reason: 'missing_files' };
 

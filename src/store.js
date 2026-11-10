@@ -197,8 +197,10 @@ export class WardrobeStore {
   }
 
   notifyWorn() {
+    const worn = this.worn();
+    console.log(`[dsh-wardrobe] 穿着变化：${worn.map((w) => w.item.title).join('、') || '空'}（${this.wornListeners.size} 个监听）`);
     for (const listener of this.wornListeners) {
-      try { listener(this.worn()); } catch (error) { /* 同步失败不能连累穿衣本身 */ }
+      try { listener(worn); } catch (error) { console.log(`[dsh-wardrobe] 穿着监听失败：${error?.message ?? error}`); }
     }
   }
 
