@@ -186,6 +186,18 @@ test('按种类和部位筛；一件标多个部位时命中任意一个都列�
   } finally { store.close(); }
 });
 
+test('裆和裆部归到同一个词：写裆部能用「裆」搜到，且不会和臀混成一处', () => {
+  const store = new WardrobeStore(tmpdir());
+  try {
+    const suit = store.create({ title: '连体泳衣', type: '连体泳衣', body: '肩、臀、胯部、裆部' });
+    assert.equal(suit.body, '肩、臀、裆', '胯部并进臀，裆部并进裆，不留原词');
+    assert.equal(store.page({ body: '裆' }).total, 1);
+    assert.equal(store.page({ body: '裆部' }).total, 1, '换个写法也该搜到');
+    assert.equal(store.page({ body: '臀' }).total, 1);
+    assert.equal(store.page({ body: '裆' }).items[0].title, '连体泳衣');
+  } finally { store.close(); }
+});
+
 test('当前穿着：多件同时穿，按部位能看出来各自盖哪', () => {
   const store = new WardrobeStore(tmpdir());
   try {

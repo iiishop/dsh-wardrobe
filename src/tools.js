@@ -50,7 +50,7 @@ export function toolSpecs(store) {
     },
     {
       name: 'wardrobe_list_body',
-      description: '按身体部位看衣服的标题（分页，每页 10 件）。标准部位词：头、颈、肩、胸、背、腹、腰、臀、大腿、膝、小腿、脚、手臂、手；一件衣服可以标多个部位，命中任意一个就会被列出来（「腿」按大腿算）。只返回 id 和标题。',
+      description: '按身体部位看衣服的标题（分页，每页 10 件）。标准部位词：头、颈、肩、胸、背、腹、腰、臀、裆、大腿、膝、小腿、脚、手臂、手；一件衣服可以标多个部位，命中任意一个就会被列出来（「腿」按大腿算，「胯」按臀算）。只返回 id 和标题。',
       parameters: {
         body: { type: 'string', description: '身体部位，比如「腰」「腿」' },
         page: pageParam,
