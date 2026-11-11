@@ -17,17 +17,29 @@ const CROP = fileURLToPath(new URL('../scripts/crop-two-view.py', import.meta.ur
 /**
  * 衣柜里的图是「衣服平铺 + 人穿着」拼在一张的产品图。直接整张喂给 Qwen，
  * 它会把双人排版一起画出来（2026-11-10 实测：成品是两个女生并排）。
- * 所以落进 ComfyUI 前先裁成单品图：找到中间的缝取左半，再裁掉留白。
- * 裁不动就原样复制——宁可退回双人图，也不能把衣服裁掉一半。
+ * 所以落进 ComfyUI 前先裁成单品图：找到中间的缝，左半当正面，右半当背面。
+ *
+ * 两半都留（2026-11-11 用户要求）：只喂正面的话，设计在后背的衣服（深 U 露背、
+ * 连体泳衣的 U 领）等于丢了一半信息。左半 → <target>，右半 → <target>_back。
+ * 裁不动就原样复制，并且把上一次留下的 _back 删掉——宁可退回双人图，
+ * 也不能把上一件衣服的背面当这件喂进去。
  */
+function backTargetOf(target) {
+  const ext = path.extname(target);
+  return `${target.slice(0, -ext.length)}_back${ext}`;
+}
+
 function writeGarment(source, target, log) {
+  const back = backTargetOf(target);
+  fs.rmSync(back, { force: true });
   try {
     const out = execFileSync('python3', [CROP, source, target], { encoding: 'utf8', timeout: 30000 }).trim();
-    return out.startsWith('split') ? 'cropped' : 'as-is';
+    if (!out.startsWith('split')) return { mode: 'as-is', back: null };
+    return { mode: 'cropped', back: fs.existsSync(back) ? back : null };
   } catch (error) {
     log(`裁图失败，原样复制：${error?.message?.split('\n')[0] ?? error}`);
     fs.copyFileSync(source, target);
-    return 'copied';
+    return { mode: 'copied', back: null };
   }
 }
 
@@ -51,8 +63,16 @@ export function syncGarment(store, { comfyInput, log = () => {} } = {}) {
     const name = index === 0 ? 'her_garment.png' : `her_garment_${index + 1}.png`;
     const source = store.imagePath(w.item.image);
     if (!fs.existsSync(source)) { log(`跳过 ${w.item.title}：图片文件不见了`); return; }
-    const mode = writeGarment(source, path.join(comfyInput, name), log);
-    written.push({ slot: name, id: w.item.id, title: w.item.title, parts: w.parts, prompt: w.item.prompt, image_mode: mode });
+    const { mode, back } = writeGarment(source, path.join(comfyInput, name), log);
+    written.push({
+      slot: name,
+      slot_back: back ? path.basename(back) : '',
+      id: w.item.id,
+      title: w.item.title,
+      parts: w.parts,
+      prompt: w.item.prompt,
+      image_mode: mode,
+    });
   });
   if (!written.length) return { synced: false, reason: 'missing_files' };
 
@@ -63,6 +83,8 @@ export function syncGarment(store, { comfyInput, log = () => {} } = {}) {
     items: written,
   }, null, 2));
 
-  log(`已同步 ${written.length} 件到 ComfyUI 输入：${written.map((w) => w.title).join('、')}${written.length > 1 ? '（工作流目前只用第一件）' : ''}`);
+  const backs = written.filter((w) => w.slot_back).length;
+  log(`已同步 ${written.length} 件到 ComfyUI 输入：${written.map((w) => w.title).join('、')}`
+    + `（${backs} 件带背面图）${written.length > 1 ? '（工作流目前只用第一件）' : ''}`);
   return { synced: true, count: written.length, written };
 }

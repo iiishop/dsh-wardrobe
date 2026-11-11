@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { WardrobeStore } from '../src/store.js';
 import { installApi } from '../src/api.js';
 import { toolSpecs } from '../src/tools.js';
@@ -468,6 +469,48 @@ test('穿着一变就同步到 ComfyUI 输入槽：主图 + 叠加图 + 清单',
   } finally { store.close(); }
 });
 
+
+test('双视图商品图：正面落主槽，背面落 _back，两半都要', () => {
+  // 造一张 400×300 的「两件并排」图：中间留白当缝，左右各一个深色块。
+  const dir = tmpdir();
+  const comfy = path.join(dir, 'comfy-input');
+  const twoView = path.join(dir, 'two-view.png');
+  try {
+    execFileSync('python3', ['-c', `
+from PIL import Image
+im = Image.new('RGB', (400, 300), (255, 255, 255))
+px = im.load()
+for y in range(40, 260):
+    for x in range(30, 160):
+        px[x, y] = (200, 30, 30)
+    for x in range(240, 370):
+        px[x, y] = (30, 30, 200)
+im.save(${JSON.stringify(twoView)})
+`], { stdio: 'ignore' });
+  } catch { return; } // 没有 PIL 就跳过这条
+
+  const store = new WardrobeStore(path.join(dir, 'db'));
+  try {
+    const item = store.create({ title: '两视图连衣裙', body: '腰', prompt: 'dress', image: store.saveImage(fs.readFileSync(twoView)) });
+    syncGarment(store, { comfyInput: comfy });
+    store.wear(item.id);
+    const result = syncGarment(store, { comfyInput: comfy });
+    assert.equal(result.synced, true);
+    assert.ok(fs.existsSync(path.join(comfy, 'her_garment.png')), '正面');
+    assert.ok(fs.existsSync(path.join(comfy, 'her_garment_back.png')), '背面也要落盘');
+    const manifest = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(manifest.items[0].slot_back, 'her_garment_back.png', '清单要带上背面文件名');
+
+    // 换成单视图（先脱掉这件，穿是多件相加、不会自动顶掉）
+    store.unwear(item.id);
+    const plain = store.create({ title: '单视图衬衫', body: '胸', prompt: 'shirt', image: store.saveImage(PNG) });
+    store.wear(plain.id);
+    syncGarment(store, { comfyInput: comfy });
+    assert.ok(!fs.existsSync(path.join(comfy, 'her_garment_back.png')), '单视图时旧的背面图必须删掉');
+    const after = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(after.items[0].slot_back, '');
+  } finally { store.close(); }
+});
 
 test('部位写法带括号说明也能归位', () => {
   const store = new WardrobeStore(tmpdir());

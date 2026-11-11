@@ -9,6 +9,7 @@
   找不到缝就原样复制——宁可保留双视图，也不能把一件衣服裁掉一半。
 """
 import sys
+from pathlib import Path
 from PIL import Image
 
 BG_MIN = 232          # 三通道都不低于它
@@ -73,10 +74,19 @@ def main():
         return 0
     left = trim(img.crop((0, 0, split, img.size[1])))
     right = trim(img.crop((split, 0, img.size[0], img.size[1])))
-    # 取人多的一边？不——取左半边（正面），右半边通常是侧面/背面。
+    # 两半都要：左边当正面写进 dst，右边同目录同名加 _back。
+    # 只留正面会把「设计在后背」的衣服（深 U 露背、连体泳衣的 U 领）丢掉一半信息。
     left.save(dst)
-    print(f'split@{split} {img.size[0]}x{img.size[1]} → {left.size[0]}x{left.size[1]} (right {right.size[0]}x{right.size[1]})')
+    back = back_path(dst)
+    right.save(back)
+    print(f'split@{split} {img.size[0]}x{img.size[1]} → '
+          f'left {left.size[0]}x{left.size[1]} right {right.size[0]}x{right.size[1]}')
     return 0
+
+
+def back_path(dst):
+    p = Path(dst)
+    return str(p.with_name(f'{p.stem}_back{p.suffix}'))
 
 
 if __name__ == '__main__':
