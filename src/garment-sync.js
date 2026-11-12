@@ -71,6 +71,9 @@ export function syncGarment(store, { comfyInput, log = () => {} } = {}) {
       title: w.item.title,
       parts: w.parts,
       prompt: w.item.prompt,
+      // 结构化描述（九槽位）。比 prompt 短且按部位分句，给下游优先使用；
+      // 老条目没有这个字段就是空串，下游回落到 prompt。
+      structure: w.item.structure || '',
       image_mode: mode,
     });
   });
