@@ -45,9 +45,14 @@ const normalizePart = (raw) => {
 
 export function requireValue(ok, message) { if (!ok) throw new Error(message); }
 
+// structure / negative_extra / slot_back 是 2026-11-12 用 ALTER TABLE 补的列，不是 create() 写的；
+// 漏在这张映射表里时它们读出来永远是 undefined ——garment-sync 写清单时 structure 就成了空串，
+// 下游以为这件衣服没有九槽位描述（2026-11-20 实测：清单里所有条目 structure 都是 ""）。
 const decode = row => row ? {
   id: row.id, title: row.title, type: row.type, body: row.body, tags: row.tags,
   description: row.description, prompt: row.prompt, image: row.image,
+  structure: row.structure ?? '', negative_extra: row.negative_extra ?? '',
+  slot_back: row.slot_back ?? '',
   createdAt: row.created_at, updatedAt: row.updated_at,
 } : null;
 
@@ -82,9 +87,18 @@ export class WardrobeStore {
         updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);`);
-    // 老库补两列（type/body 是后加的），只加不改已有数据。
+    // 老库补列（type/body 是后加的），只加不改已有数据。
+    // structure / negative_extra / slot_back 是 2026-11-12 手改生产库加的，这里必须一并声明：
+    // 不写进这张表，新库根本没有这三列，decode 读出来是 undefined。
     const columns = new Set(this.db.prepare('PRAGMA table_info(items)').all().map((c) => c.name));
-    for (const [name, ddl] of [['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"], ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"], ['tags', "ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''"]]) {
+    for (const [name, ddl] of [
+      ['type', "ALTER TABLE items ADD COLUMN type TEXT NOT NULL DEFAULT ''"],
+      ['body', "ALTER TABLE items ADD COLUMN body TEXT NOT NULL DEFAULT ''"],
+      ['tags', "ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT ''"],
+      ['structure', "ALTER TABLE items ADD COLUMN structure TEXT NOT NULL DEFAULT ''"],
+      ['negative_extra', "ALTER TABLE items ADD COLUMN negative_extra TEXT NOT NULL DEFAULT ''"],
+      ['slot_back', "ALTER TABLE items ADD COLUMN slot_back TEXT NOT NULL DEFAULT ''"],
+    ]) {
       if (!columns.has(name)) this.db.exec(ddl);
     }
     this.wornListeners = new Set();

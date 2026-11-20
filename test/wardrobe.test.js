@@ -57,7 +57,9 @@ test('一件衣服就是四个字段（另有种类与部位供筛选）：标�
     assert.equal(item.description, '落肩，袖口卷一圈。');
     assert.equal(item.prompt, 'cream knit cardigan, soft light');
     assert.equal(item.image, '');
-    assert.deepEqual(Object.keys(item).sort(), ['body', 'createdAt', 'description', 'id', 'image', 'prompt', 'tags', 'title', 'type', 'updatedAt']);
+    // structure / negative_extra / slot_back 也要在返回对象里：它们是 2026-11-12 加的列，
+    // decode 漏掉过，结果是清单里 structure 永远空串（2026-11-20 修）。
+    assert.deepEqual(Object.keys(item).sort(), ['body', 'createdAt', 'description', 'id', 'image', 'negative_extra', 'prompt', 'slot_back', 'structure', 'tags', 'title', 'type', 'updatedAt']);
     assert.equal(store.list().length, 1);
   } finally { store.close(); }
 });
@@ -526,5 +528,29 @@ test('归一后重复的部位只留一个', () => {
   try {
     const item = store.create({ title: '运动短裤', body: '臀部、胯部、大腿根部、大腿上部、腰' });
     assert.deepEqual(item.body.split('、'), ['臀', '大腿', '腰'], `实际：${item.body}`);
+  } finally { store.close(); }
+});
+
+
+test('九槽位那三列要读得出来（decode 漏掉时清单里 structure 永远是空串）', () => {
+  const dir = tmpdir();
+  const comfy = path.join(dir, 'comfy-input');
+  const store = new WardrobeStore(path.join(dir, 'db'));
+  try {
+    const item = store.create({ title: '露背针织裙', body: '腰', image: store.saveImage(PNG) });
+    // create() 不写这三列，按入库脚本的做法直接补
+    store.db.prepare('UPDATE items SET structure=?, negative_extra=?, slot_back=? WHERE id=?')
+      .run('品类：针织裙。下摆：到髋。', '中央带, 长袖', 'back.png', item.id);
+
+    const got = store.get(item.id);
+    assert.equal(got.structure, '品类：针织裙。下摆：到髋。');
+    assert.equal(got.negative_extra, '中央带, 长袖');
+    assert.equal(got.slot_back, 'back.png');
+    assert.equal(store.list().find((r) => r.id === item.id).structure, '品类：针织裙。下摆：到髋。');
+
+    store.wear(item.id);
+    syncGarment(store, { comfyInput: comfy });
+    const manifest = JSON.parse(fs.readFileSync(path.join(comfy, 'her_garment.json'), 'utf8'));
+    assert.equal(manifest.items[0].structure, '品类：针织裙。下摆：到髋。', '清单要带上九槽位描述');
   } finally { store.close(); }
 });
